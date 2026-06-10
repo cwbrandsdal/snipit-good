@@ -22,9 +22,11 @@ via the tray's *Restart to update* item).
 
 ```powershell
 npm install
-npm run gen-icon
 npm start
 ```
+
+Icons are generated from `assets/icon-source.png` and committed; after changing the artwork run
+`npm run gen-icon` to regenerate every size (window/tray PNGs + the installer `.ico`).
 
 ## How it works
 

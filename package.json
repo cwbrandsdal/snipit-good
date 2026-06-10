@@ -11,7 +11,7 @@
   "scripts": {
     "start": "electron .",
     "smoke": "electron . --smoke",
-    "gen-icon": "node scripts/gen-icon.js",
+    "gen-icon": "electron scripts/gen-icon.js",
     "dist": "electron-builder --win --publish never",
     "release": "electron-builder --win --publish always"
   },
