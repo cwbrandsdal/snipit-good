@@ -1,4 +1,4 @@
-name: CI
+﻿name: CI
 
 # Build check on every push/PR to main so a broken build never reaches a tag.
 
@@ -15,8 +15,8 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm

@@ -1,4 +1,4 @@
-name: Release
+﻿name: Release
 
 # Publishing flow:
 #   npm version patch   (bumps package.json + creates the vX.Y.Z tag)
@@ -19,10 +19,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
