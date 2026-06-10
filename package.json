@@ -54,7 +54,8 @@
     "publish": {
       "provider": "github",
       "owner": "cwbrandsdal",
-      "repo": "snippit-good"
+      "repo": "snippit-good",
+      "releaseType": "release"
     }
   }
 }
