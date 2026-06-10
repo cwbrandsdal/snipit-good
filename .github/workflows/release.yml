@@ -30,7 +30,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build and publish installer
+      # electron-builder uploads to a DRAFT release (its default, and the
+      # reliable path — publishing directly races the parallel asset uploads
+      # and can drop files). The draft goes live only after every asset is up.
+      - name: Build installer and upload to draft release
         run: npx electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish release
+        run: gh release edit ${{ github.ref_name }} --draft=false --latest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
