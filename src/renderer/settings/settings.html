@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src data:; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com" />
+  <title>snippit-good settings</title>
+  <link rel="stylesheet" href="settings.css" />
+</head>
+<body>
+  <header id="titlebar">
+    <span class="brand">snippit<span class="dot">-</span>good</span>
+    <span class="title-sub">settings</span>
+  </header>
+
+  <main>
+    <section class="setting">
+      <div class="setting-head">
+        <h2>Capture shortcut</h2>
+        <p>Works anywhere — press it to start a new snip.</p>
+      </div>
+      <div class="shortcut-row">
+        <button id="shortcut-field" title="Click, then press the new shortcut">Ctrl+Shift+S</button>
+        <button class="btn-ghost" id="shortcut-reset" title="Reset to Ctrl+Shift+S">Reset</button>
+      </div>
+      <p class="status" id="shortcut-status"></p>
+    </section>
+
+    <section class="setting row">
+      <div class="setting-head">
+        <h2>Copy on capture</h2>
+        <p>Put every new snip straight on the clipboard.</p>
+      </div>
+      <button class="switch" id="autocopy" role="switch" aria-checked="false"><span class="knob"></span></button>
+    </section>
+
+    <section class="setting note">
+      <h2>Recent snips</h2>
+      <p>The bar keeps your <strong>last 3</strong> snips and fades away after ~10&nbsp;seconds — use its pin button to keep it open. Older snips are removed automatically; save anything you want to keep.</p>
+    </section>
+  </main>
+
+  <footer>
+    <span>snippit-good</span>
+    <span class="ver">v0.1.0</span>
+  </footer>
+
+  <script src="settings.js"></script>
+</body>
+</html>

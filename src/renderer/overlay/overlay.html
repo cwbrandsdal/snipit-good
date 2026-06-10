@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src data:; style-src 'self'" />
+  <title>snippit-good — snip</title>
+  <link rel="stylesheet" href="overlay.css" />
+</head>
+<body>
+  <img id="shot" alt="" draggable="false" />
+  <div id="shade"></div>
+  <div id="sel" hidden>
+    <span class="handle h-nw"></span><span class="handle h-n"></span><span class="handle h-ne"></span>
+    <span class="handle h-w"></span><span class="handle h-e"></span>
+    <span class="handle h-sw"></span><span class="handle h-s"></span><span class="handle h-se"></span>
+    <div id="dims">0 × 0</div>
+  </div>
+  <div id="hint">
+    <span class="brand">snippit<span class="dot">-</span>good</span>
+    <span class="sep"></span>
+    <span>Drag to capture</span>
+    <kbd>Esc</kbd>
+    <span class="dim">to cancel</span>
+  </div>
+  <script src="overlay.js"></script>
+</body>
+</html>

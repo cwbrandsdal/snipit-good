@@ -1,0 +1,26 @@
+name: CI
+
+# Build check on every push/PR to main so a broken build never reaches a tag.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run gen-icon
+      - name: Build installer (not published)
+        run: npx electron-builder --win --publish never

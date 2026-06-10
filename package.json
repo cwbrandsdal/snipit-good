@@ -1,0 +1,60 @@
+{
+  "name": "snippit-good",
+  "productName": "snippit-good",
+  "version": "0.1.0",
+  "description": "Lightweight Windows screenshot utility: snip with a shortcut, keep the last three snips in a floating bar, annotate, and copy.",
+  "main": "src/main/main.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cwbrandsdal/snippit-good.git"
+  },
+  "scripts": {
+    "start": "electron .",
+    "smoke": "electron . --smoke",
+    "gen-icon": "node scripts/gen-icon.js",
+    "dist": "electron-builder --win --publish never",
+    "release": "electron-builder --win --publish always"
+  },
+  "author": "Christopher Brandsdal",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^42.4.0",
+    "electron-builder": "^26.15.2"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  },
+  "build": {
+    "appId": "no.cwb.snippit-good",
+    "productName": "snippit-good",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "assets/icon.png",
+      "assets/tray.png",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "cwbrandsdal",
+      "repo": "snippit-good"
+    }
+  }
+}

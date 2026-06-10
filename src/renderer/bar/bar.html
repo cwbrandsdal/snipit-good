@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src data:; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com" />
+  <title>snippit-good</title>
+  <link rel="stylesheet" href="bar.css" />
+</head>
+<body>
+  <div id="bar">
+    <header id="bar-head">
+      <span class="brand">snippit<span class="dot">-</span>good</span>
+      <span class="spacer"></span>
+      <button class="icon-btn tiny" id="btn-pin" title="Keep bar open">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.8V6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1v4.8l2.2 1.5a1 1 0 0 1 .44.83V15a1 1 0 0 1-1 1H7.36a1 1 0 0 1-1-1v-.87a1 1 0 0 1 .44-.83Z"/></svg>
+      </button>
+      <button class="icon-btn tiny" id="btn-settings" title="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.09a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.09a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1Z"/></svg>
+      </button>
+      <button class="icon-btn tiny" id="btn-hide" title="Hide bar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg>
+      </button>
+    </header>
+    <div id="thumbs"></div>
+    <footer id="bar-foot">
+      <button id="btn-new" title="Take a new snip">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h2l2-3h10l2 3h2v11H3z"/><circle cx="12" cy="13" r="3.4"/></svg>
+        <span>New snip</span>
+        <kbd id="shortcut-hint"></kbd>
+      </button>
+    </footer>
+    <div id="chip" hidden><span class="tick">✓</span><span id="chip-text">Copied</span></div>
+  </div>
+  <script src="bar.js"></script>
+</body>
+</html>

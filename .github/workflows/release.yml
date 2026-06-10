@@ -1,0 +1,39 @@
+name: Release
+
+# Publishing flow:
+#   npm version patch   (bumps package.json + creates the vX.Y.Z tag)
+#   git push --follow-tags
+# The tag triggers this workflow, which builds the Windows installer and
+# publishes it (plus latest.yml for the auto-updater) to a GitHub Release.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # create the release and upload assets
+
+jobs:
+  build-and-publish:
+    runs-on: windows-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate icons
+        run: npm run gen-icon
+
+      - name: Build and publish installer
+        run: npx electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

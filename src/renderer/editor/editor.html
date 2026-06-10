@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src data:; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com" />
+  <title>snippit-good editor</title>
+  <link rel="stylesheet" href="editor.css" />
+</head>
+<body>
+  <header id="titlebar">
+    <span class="brand">snippit<span class="dot">-</span>good</span>
+    <span class="title-sub">editor</span>
+  </header>
+
+  <div id="toolbar">
+    <div class="tool-group" id="tools">
+      <button class="tool active" data-tool="pen" title="Pen (P)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+        <span>Pen</span>
+      </button>
+      <button class="tool" data-tool="highlight" title="Highlighter (H)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11 6 6"/><path d="M4 20h5l10.5-10.5a2.1 2.1 0 0 0-3-3L6 17Z"/><path d="M4 20H2"/></svg>
+        <span>Highlight</span>
+      </button>
+      <button class="tool" data-tool="rect" title="Rectangle (R)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="5" width="16" height="14" rx="1.5"/></svg>
+        <span>Rectangle</span>
+      </button>
+      <button class="tool" data-tool="ellipse" title="Circle (C)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8.5"/></svg>
+        <span>Circle</span>
+      </button>
+      <button class="tool" data-tool="line" title="Line (L)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 19 19 5"/></svg>
+        <span>Line</span>
+      </button>
+      <button class="tool" data-tool="arrow" title="Arrow (A)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19 19 5"/><path d="M10 5h9v9"/></svg>
+        <span>Arrow</span>
+      </button>
+      <button class="tool" data-tool="text" title="Text (T)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 6V4h14v2M12 4v16M9 20h6"/></svg>
+        <span>Text</span>
+      </button>
+      <button class="tool" data-tool="pixelate" title="Pixelate (X)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4h5v5H4zM9 9h5v5H9zM14 4h5v5h-5zM14 14h5v5h-5zM4 14h5v5H4z"/></svg>
+        <span>Pixelate</span>
+      </button>
+    </div>
+
+    <span class="vsep"></span>
+
+    <div class="tool-group">
+      <button id="color-btn" title="Ink colour">
+        <span id="color-swatch"></span>
+        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+      <button id="width-btn" title="Stroke width">
+        <span id="width-dot"></span>
+        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+    </div>
+
+    <span class="vsep"></span>
+
+    <div class="tool-group">
+      <button class="icon-btn" id="btn-undo" title="Undo (Ctrl+Z)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+      </button>
+      <button class="icon-btn" id="btn-redo" title="Redo (Ctrl+Y)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>
+      </button>
+    </div>
+
+    <span class="flex-spacer"></span>
+
+    <div class="tool-group">
+      <button class="icon-btn" id="btn-zoom-out" title="Zoom out">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg>
+      </button>
+      <button id="zoom-label" title="Zoom to 100%">100%</button>
+      <button class="icon-btn" id="btn-zoom-in" title="Zoom in">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+      <button class="icon-btn" id="btn-zoom-fit" title="Fit to window">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+      </button>
+    </div>
+
+    <button class="btn-primary" id="btn-copy">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      Copy to clipboard
+    </button>
+  </div>
+
+  <main id="viewport">
+    <div id="stage">
+      <canvas id="canvas"></canvas>
+      <div id="text-layer"></div>
+    </div>
+  </main>
+
+  <footer id="statusbar">
+    <span id="dims" class="dims">— × —</span>
+    <span class="vsep"></span>
+    <button class="btn-ghost tool-foot" id="btn-crop" title="Crop the image">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2v16a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/></svg>
+      Crop
+    </button>
+    <button class="btn-ghost" id="btn-reset" title="Reset crop to the original size">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+      Reset
+    </button>
+    <span class="flex-spacer"></span>
+    <button class="btn-ghost" id="btn-save">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+      Save image
+    </button>
+  </footer>
+
+  <div id="color-pop" class="popover" hidden>
+    <div class="swatches"></div>
+    <label class="custom-color">Custom <input type="color" id="color-input" /></label>
+  </div>
+  <div id="width-pop" class="popover" hidden></div>
+
+  <div id="toast" class="toast"><span class="tick">✓</span><span id="toast-text"></span></div>
+
+  <script src="editor.js"></script>
+</body>
+</html>
