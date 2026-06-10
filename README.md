@@ -88,9 +88,12 @@ bar, editor and overlay with fake mouse input and screenshots each window to `.s
 Releases are built and published automatically by GitHub Actions when a version tag is pushed:
 
 ```powershell
-npm version patch   # or minor / major — bumps package.json and creates the vX.Y.Z tag
+npm version patch -m "v%s [skip ci]"   # or minor / major — bumps package.json + tags vX.Y.Z
 git push --follow-tags
 ```
+
+`[skip ci]` stops the CI workflow from redundantly building the bump commit — the tag's
+Release workflow builds that exact commit anyway.
 
 The [Release workflow](.github/workflows/release.yml) builds the NSIS installer on
 `windows-latest` and publishes it together with `latest.yml` (the auto-updater feed) to a GitHub
