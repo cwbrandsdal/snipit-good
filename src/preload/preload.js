@@ -28,4 +28,11 @@ contextBridge.exposeInMainWorld('snippit', {
   // settings
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
+
+  // updates
+  getUpdateState: () => ipcRenderer.invoke('update:get-state'),
+  checkForUpdates: () => ipcRenderer.send('update:check'),
+  installUpdate: () => ipcRenderer.send('update:install'),
+  onUpdateState: (cb) => ipcRenderer.on('update:state', (_e, p) => cb(p)),
+  openReleasesPage: () => ipcRenderer.send('open-releases-page'),
 });

@@ -33,6 +33,25 @@
       <button class="switch" id="autocopy" role="switch" aria-checked="false"><span class="knob"></span></button>
     </section>
 
+    <section class="setting">
+      <div class="setting-row-head">
+        <div class="setting-head">
+          <h2>Updates</h2>
+          <p>You're on v<span id="cur-ver">…</span>. New versions install from
+            <a id="gh-link" href="#">GitHub releases</a>.</p>
+        </div>
+        <button class="switch" id="autoupdate" role="switch" aria-checked="true"
+          title="Check for updates automatically (on start and every few hours)">
+          <span class="knob"></span>
+        </button>
+      </div>
+      <div class="update-row">
+        <button class="btn-ghost" id="btn-check-update">Check for updates</button>
+        <button class="btn-primary" id="btn-restart-update" hidden>Restart &amp; update</button>
+        <span class="status" id="update-status"></span>
+      </div>
+    </section>
+
     <section class="setting note">
       <h2>Recent snips</h2>
       <p>The bar keeps your <strong>last 3</strong> snips and fades away after ~10&nbsp;seconds — use its pin button to keep it open. Older snips are removed automatically; save anything you want to keep.</p>
@@ -41,7 +60,7 @@
 
   <footer>
     <span>snippit-good</span>
-    <span class="ver">v0.1.0</span>
+    <span class="ver" id="footer-ver"></span>
   </footer>
 
   <script src="settings.js"></script>

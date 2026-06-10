@@ -19,6 +19,7 @@ function setStatus(text, cls) {
 function paint() {
   field.textContent = current.shortcut;
   autoCopyBtn.setAttribute('aria-checked', String(!!current.autoCopy));
+  autoUpdateBtn.setAttribute('aria-checked', String(current.autoUpdate !== false));
 }
 
 async function apply(patch) {
@@ -84,7 +85,55 @@ window.addEventListener('blur', () => { if (recording) stopRecording(); });
 resetBtn.addEventListener('click', () => apply({ shortcut: DEFAULT_SHORTCUT }));
 autoCopyBtn.addEventListener('click', () => apply({ autoCopy: !current.autoCopy }));
 
+/* --- updates --- */
+
+const autoUpdateBtn = document.getElementById('autoupdate');
+const checkBtn = document.getElementById('btn-check-update');
+const restartBtn = document.getElementById('btn-restart-update');
+const updateStatus = document.getElementById('update-status');
+
+function paintUpdate(state) {
+  if (state.currentVersion) {
+    document.getElementById('cur-ver').textContent = state.currentVersion;
+    document.getElementById('footer-ver').textContent = `v${state.currentVersion}`;
+  }
+  let text = '';
+  let cls = '';
+  let busy = false;
+  let ready = false;
+  switch (state.status) {
+    case 'checking': text = 'Checking for updates…'; cls = 'busy'; busy = true; break;
+    case 'downloading':
+      text = `Downloading v${state.version}… ${state.progress || 0}%`;
+      cls = 'busy';
+      busy = true;
+      break;
+    case 'ready': text = `v${state.version} downloaded`; cls = 'ok'; ready = true; break;
+    case 'uptodate': text = 'You’re up to date'; cls = 'ok'; break;
+    case 'error': text = `Update check failed: ${state.error || 'unknown error'}`; cls = 'err'; break;
+    case 'dev': text = 'Updates only work in the installed app'; cls = 'busy'; busy = true; break;
+    default: text = '';
+  }
+  updateStatus.textContent = text;
+  updateStatus.className = `status ${cls}`;
+  checkBtn.disabled = busy || ready;
+  restartBtn.hidden = !ready;
+}
+
+checkBtn.addEventListener('click', () => {
+  paintUpdate({ status: 'checking' });
+  window.snippit.checkForUpdates();
+});
+restartBtn.addEventListener('click', () => window.snippit.installUpdate());
+autoUpdateBtn.addEventListener('click', () => apply({ autoUpdate: !current.autoUpdate }));
+window.snippit.onUpdateState(paintUpdate);
+document.getElementById('gh-link').addEventListener('click', (e) => {
+  e.preventDefault();
+  window.snippit.openReleasesPage();
+});
+
 (async function boot() {
   current = await window.snippit.getSettings();
   paint();
+  paintUpdate(await window.snippit.getUpdateState());
 })();

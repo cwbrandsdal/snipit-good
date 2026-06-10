@@ -23,6 +23,9 @@
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
+/* the hidden attribute must always win, even over display rules */
+[hidden] { display: none !important; }
+
 html, body {
   font-family: var(--font-ui);
   color: var(--text);

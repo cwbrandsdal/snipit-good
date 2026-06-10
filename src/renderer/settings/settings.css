@@ -94,6 +94,22 @@ main {
 .switch[aria-checked='true'] .knob { transform: translateX(18px); }
 
 .setting.note { border-style: dashed; background: transparent; }
+
+.setting-row-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.setting a { color: var(--accent); text-decoration: none; }
+.setting a:hover { text-decoration: underline; }
+
+.update-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+  min-height: 32px;
+}
+.update-row .status { margin: 0; min-height: 0; flex: 1; }
+.update-row .status.busy { color: var(--text-dim); }
+#btn-check-update:disabled { opacity: 0.45; pointer-events: none; }
 .setting.note strong { color: var(--text); }
 
 footer {

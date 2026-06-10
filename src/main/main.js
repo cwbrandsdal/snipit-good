@@ -3,7 +3,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const {
   app, BrowserWindow, globalShortcut, screen, desktopCapturer,
-  clipboard, nativeImage, Tray, Menu, ipcMain, dialog,
+  clipboard, nativeImage, Tray, Menu, ipcMain, dialog, shell,
 } = require('electron');
 
 const gdi = require('./gdi-capture');
@@ -19,7 +19,7 @@ const PRELOAD = path.join(__dirname, '..', 'preload', 'preload.js');
 const renderer = (p) => path.join(__dirname, '..', 'renderer', p);
 const asset = (p) => path.join(__dirname, '..', '..', 'assets', p);
 
-const DEFAULT_SETTINGS = { shortcut: 'Ctrl+Shift+S', autoCopy: true, pinBar: false };
+const DEFAULT_SETTINGS = { shortcut: 'Ctrl+Shift+S', autoCopy: true, pinBar: false, autoUpdate: true };
 
 let settings = { ...DEFAULT_SETTINGS };
 let snips = []; // { id, file, width, height, createdAt }
@@ -495,7 +495,7 @@ function openSettings() {
   }
   settingsWin = new BrowserWindow({
     width: 420,
-    height: 480,
+    height: 620,
     resizable: false,
     minimizable: false,
     maximizable: false,
@@ -522,23 +522,60 @@ function registerShortcut(accel) {
 /* ---------------- auto update (GitHub releases) ---------------- */
 
 let updateReadyVersion = null;
+let updater = null;
+let updateStartTimer = null;
+let updateIntervalTimer = null;
+// status: idle | checking | downloading | ready | uptodate | error | dev
+let updateState = { status: 'idle', version: null, progress: 0, error: null };
 
-function setupAutoUpdate() {
-  if (!app.isPackaged) return; // dev runs have no update metadata
-  let autoUpdater;
-  try { ({ autoUpdater } = require('electron-updater')); } catch { return; }
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true; // updates apply on normal quit too
-  autoUpdater.on('update-downloaded', (info) => {
+function setUpdateState(patch) {
+  updateState = { ...updateState, ...patch };
+  if (settingsWin && !settingsWin.isDestroyed()) {
+    settingsWin.webContents.send('update:state', updateState);
+  }
+}
+
+function initUpdater() {
+  if (updater) return updater;
+  if (!app.isPackaged) return null; // dev runs have no update metadata
+  try { ({ autoUpdater: updater } = require('electron-updater')); } catch { return null; }
+  updater.autoDownload = true;
+  updater.autoInstallOnAppQuit = true; // updates apply on normal quit too
+  updater.on('checking-for-update', () => setUpdateState({ status: 'checking', error: null }));
+  updater.on('update-available', (info) =>
+    setUpdateState({ status: 'downloading', version: info.version, progress: 0 }));
+  updater.on('update-not-available', () =>
+    setUpdateState({ status: 'uptodate', version: null, progress: 0 }));
+  updater.on('download-progress', (p) =>
+    setUpdateState({ status: 'downloading', progress: Math.round(p.percent) }));
+  updater.on('update-downloaded', (info) => {
     updateReadyVersion = info.version;
+    setUpdateState({ status: 'ready', version: info.version, progress: 100 });
     if (tray && tray.rebuildMenu) tray.rebuildMenu();
     tray?.setToolTip(`snippit-good — update v${info.version} ready, restart to apply`);
   });
-  autoUpdater.on('error', (err) => console.error('auto-update:', err.message));
-  const check = () => autoUpdater.checkForUpdates().catch(() => {});
-  setTimeout(check, 15 * 1000); // don't compete with startup
-  setInterval(check, UPDATE_CHECK_INTERVAL);
-  app.applyUpdate = () => { quitting = true; autoUpdater.quitAndInstall(); };
+  updater.on('error', (err) => {
+    console.error('auto-update:', err.message);
+    setUpdateState({ status: 'error', error: err.message });
+  });
+  app.applyUpdate = () => { quitting = true; updater.quitAndInstall(); };
+  return updater;
+}
+
+function checkForUpdates() {
+  const u = initUpdater();
+  if (!u) { setUpdateState({ status: 'dev' }); return; }
+  if (updateState.status === 'downloading' || updateState.status === 'ready') return;
+  u.checkForUpdates().catch((err) => setUpdateState({ status: 'error', error: err.message }));
+}
+
+// honours the autoUpdate setting: check shortly after start, then periodically
+function applyAutoUpdateSetting() {
+  clearTimeout(updateStartTimer);
+  clearInterval(updateIntervalTimer);
+  if (!settings.autoUpdate) return;
+  updateStartTimer = setTimeout(checkForUpdates, 15 * 1000); // don't compete with startup
+  updateIntervalTimer = setInterval(checkForUpdates, UPDATE_CHECK_INTERVAL);
 }
 
 /* ---------------- tray ---------------- */
@@ -551,6 +588,7 @@ function createTray() {
       { label: `New snip\t${settings.shortcut}`, click: () => startSnip() },
       { label: 'Show recent snips', click: () => { if (snips.length) showBar(); } },
       { label: 'Settings…', click: () => openSettings() },
+      { label: 'Check for updates…', click: () => { openSettings(); checkForUpdates(); } },
     ];
     if (updateReadyVersion) {
       items.push({ type: 'separator' });
@@ -625,6 +663,14 @@ ipcMain.handle('image:save', async (e, { dataUrl, name }) => {
 });
 
 ipcMain.handle('settings:get', () => settings);
+ipcMain.handle('update:get-state', () => ({
+  ...(!app.isPackaged && updateState.status === 'idle' ? { ...updateState, status: 'dev' } : updateState),
+  currentVersion: app.getVersion(),
+}));
+ipcMain.on('update:check', () => checkForUpdates());
+ipcMain.on('update:install', () => { if (updateReadyVersion && app.applyUpdate) app.applyUpdate(); });
+ipcMain.on('open-releases-page', () =>
+  shell.openExternal('https://github.com/cwbrandsdal/snippit-good/releases'));
 ipcMain.handle('settings:set', (_e, patch) => {
   const next = { ...settings, ...patch };
   if (patch.shortcut && patch.shortcut !== settings.shortcut) {
@@ -640,9 +686,11 @@ ipcMain.handle('settings:set', (_e, patch) => {
       return { ok: false, error: 'That shortcut could not be registered — it may be in use.', settings };
     }
   }
+  const autoUpdateChanged = next.autoUpdate !== settings.autoUpdate;
   settings = next;
   saveSettings();
   if (tray && tray.rebuildMenu) tray.rebuildMenu();
+  if (autoUpdateChanged) applyAutoUpdateSetting();
   pushSnipsToBar();
   return { ok: true, settings };
 });
@@ -839,6 +887,12 @@ async function runSelfTest() {
 
 /* ---------------- app lifecycle ---------------- */
 
+// dev/test runs get their own profile: they must not fight the installed
+// app's single-instance lock or pollute its settings and snips
+if (SMOKE || SELFTEST) {
+  app.setPath('userData', path.join(require('node:os').tmpdir(), 'snippit-good-test-profile'));
+}
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -854,7 +908,7 @@ if (!app.requestSingleInstanceLock()) {
     screen.on('display-added', ensureOverlayPool);
     screen.on('display-removed', ensureOverlayPool);
     screen.on('display-metrics-changed', ensureOverlayPool);
-    setupAutoUpdate();
+    applyAutoUpdateSetting();
     if (!registerShortcut(settings.shortcut)) {
       settings.shortcut = DEFAULT_SETTINGS.shortcut;
       registerShortcut(settings.shortcut);
