@@ -27,13 +27,18 @@ const asset = (p) => path.join(__dirname, '..', '..', 'assets', p);
 const DEFAULT_SETTINGS = {
   shortcut: 'Ctrl+Shift+S',
   recordShortcut: 'Ctrl+Alt+R',
+  defaultMode: 'image', // what the main shortcut opens: 'image' | 'video'
   autoCopy: true,
   pinBar: false,
   autoUpdate: true,
-  recordAudio: true,
+  recordAudio: true, // recordings START with system audio on (mutable from the HUD)
+  recordMic: false,  // recordings START with the microphone on (toggleable from the HUD)
+  audioQuality: 'standard', // low | standard | high
   armBeforeRecord: true, // pick a region, adjust it, press Record — vs. record instantly
   saveDir: '', // where captures are written; resolved to Pictures\snippit-good when empty
 };
+
+const AUDIO_BITRATES = { low: 64000, standard: 128000, high: 192000 };
 
 let settings = { ...DEFAULT_SETTINGS };
 // the library keeps EVERY capture — nothing is trimmed automatically.
@@ -624,7 +629,7 @@ function removeSnip(id) {
    where content protection is ignored) and the control bar. */
 
 const REC_FRAME_PAD = 3; // red border thickness; sits outside the recorded region
-const REC_BAR = { width: 322, height: 52, gap: 10 };
+const REC_BAR = { width: 392, height: 52, gap: 10 };
 
 let recording = null;
 // { id, display, rect, source, frameWin, barWin, file, poster, stream, meta,
@@ -644,8 +649,11 @@ function initDisplayMediaHandler() {
         && request.frame === rec.barWin.webContents.mainFrame);
     } catch { allowed = false; }
     try {
+      // loopback is always granted when asked for — the recorder keeps the
+      // track around so system audio can be muted/unmuted live; the settings
+      // toggle only decides whether it STARTS muted
       if (!allowed) callback(null);
-      else if (settings.recordAudio && request.audioRequested) callback({ video: rec.source, audio: 'loopback' });
+      else if (request.audioRequested) callback({ video: rec.source, audio: 'loopback' });
       else callback({ video: rec.source });
     } catch (err) {
       console.error('display media handler:', err.message);
@@ -770,8 +778,14 @@ async function startRecording(display, rect) {
     if (barWin.isDestroyed() || !recording || recording.barWin !== barWin) return;
     barWin.showInactive();
     barWin.moveTop(); // above the full-display frame window
-    if (armed) barWin.webContents.send('rec:arm');
-    else barWin.webContents.send('rec:init', recInitPayload(recording));
+    if (armed) {
+      barWin.webContents.send('rec:arm', {
+        audio: !!settings.recordAudio,
+        mic: !!settings.recordMic,
+      });
+    } else {
+      barWin.webContents.send('rec:init', recInitPayload(recording));
+    }
   });
   // recorder window died mid-recording — keep whatever already reached the disk
   barWin.on('closed', () => {
@@ -796,6 +810,8 @@ function recInitPayload(rec) {
     displayBounds: rec.display.bounds,
     fps: RECORD_FPS,
     audio: !!settings.recordAudio,
+    mic: !!settings.recordMic,
+    audioBitrate: AUDIO_BITRATES[settings.audioQuality] || AUDIO_BITRATES.standard,
     sourceId: rec.source.id,
   };
 }
@@ -1092,15 +1108,19 @@ function openSettings() {
 /* ---------------- shortcuts ---------------- */
 
 // both hotkeys stop an active recording (or fire an armed one); with the
-// overlay already open they just flip its snip/record mode
+// overlay already open they just flip its snip/record mode. 'default'
+// resolves to the user's configured default capture mode at press time.
 function hotkeyPressed(mode) {
+  const m = mode === 'default'
+    ? (settings.defaultMode === 'video' ? 'video' : 'image')
+    : mode;
   if (recording) {
     if (recording.status === 'armed') beginArmedRecording();
     else stopRecording(false);
     return;
   }
-  if (capturing) { setSnipMode(mode); return; }
-  startSnip(mode);
+  if (capturing) { setSnipMode(m); return; }
+  startSnip(m);
 }
 
 function regHotkey(accel, mode) {
@@ -1115,12 +1135,12 @@ function regHotkey(accel, mode) {
 function bindHotkeys(shortcut, recordShortcut) {
   globalShortcut.unregister(settings.shortcut);
   if (settings.recordShortcut) globalShortcut.unregister(settings.recordShortcut);
-  const okSnip = regHotkey(shortcut, 'image');
+  const okSnip = regHotkey(shortcut, 'default');
   const okRec = !recordShortcut || regHotkey(recordShortcut, 'video');
   if (okSnip && okRec) return null;
   if (okSnip) globalShortcut.unregister(shortcut);
   if (okRec && recordShortcut) globalShortcut.unregister(recordShortcut);
-  regHotkey(settings.shortcut, 'image');
+  regHotkey(settings.shortcut, 'default');
   if (settings.recordShortcut) regHotkey(settings.recordShortcut, 'video');
   const bad = okSnip ? recordShortcut : shortcut;
   return `${bad} could not be registered — it may be in use.`;
@@ -1232,7 +1252,7 @@ function createTray() {
     tray.setContextMenu(Menu.buildFromTemplate(items));
   };
   rebuild();
-  tray.on('double-click', () => hotkeyPressed('image'));
+  tray.on('double-click', () => hotkeyPressed('default'));
   tray.rebuildMenu = rebuild;
 }
 
@@ -1759,6 +1779,21 @@ async function runSelfTest() {
             ? `RESIZE_OK region resized to ${rr.w}x${rr.h} via SE handle`
             : `RESIZE_FAIL rect=${JSON.stringify(rr)} (expected 548x380)`);
           await shoot(recording.barWin, 'rec-hud-armed.png');
+
+          // audio toggles must flip state while armed (they set start states)
+          const tog = await recording.barWin.webContents.executeJavaScript(
+            `(() => {
+               const b = document.body;
+               const before = b.dataset.sys;
+               document.getElementById('btn-sys').click();
+               const mid = b.dataset.sys;
+               document.getElementById('btn-sys').click();
+               return { before, mid, after: b.dataset.sys };
+             })()`);
+          console.log(tog.before === 'on' && tog.mid === 'off' && tog.after === 'on'
+            ? 'AUDIO_TOGGLE_OK system-audio mute toggles in the armed HUD'
+            : `AUDIO_TOGGLE_FAIL ${JSON.stringify(tog)}`);
+
           // press the HUD's real Record button
           await recording.barWin.webContents.executeJavaScript(
             `document.getElementById('btn-record').click()`);
@@ -1780,8 +1815,30 @@ async function runSelfTest() {
           if (recording.barWin && !recording.barWin.isDestroyed()) {
             await shoot(recording.barWin, 'rec-hud.png');
           }
-          // pause / resume through the HUD's real buttons
           const hud = recording.barWin.webContents;
+
+          // the recording must carry ONE mixed audio track (loopback via WebAudio)
+          const audioInfo = await hud.executeJavaScript(
+            `({ tracks: recorder ? recorder.stream.getAudioTracks().length : -1,
+                sys: document.body.dataset.sys, mic: document.body.dataset.mic })`);
+          console.log(audioInfo.tracks === 1
+            ? `AUDIO_TRACK_OK mixed audio track present (sys=${audioInfo.sys} mic=${audioInfo.mic})`
+            : `AUDIO_TRACK_FAIL ${JSON.stringify(audioInfo)}`);
+
+          // try enabling the microphone live (no mic on this machine is fine)
+          const micState = await hud.executeJavaScript(
+            `(async () => {
+               document.getElementById('btn-mic').click();
+               await new Promise((r) => setTimeout(r, 1200));
+               const s = document.body.dataset.mic;
+               if (s === 'on') document.getElementById('btn-mic').click(); // back off
+               return s;
+             })()`);
+          console.log(micState === 'on'
+            ? 'MIC_LIVE_OK microphone joined mid-recording'
+            : `MIC_STATE ${micState} (no microphone in this session is acceptable)`);
+
+          // pause / resume through the HUD's real buttons
           await hud.executeJavaScript(`document.getElementById('btn-pause').click()`);
           await sleep(200);
           const pausedState = await hud.executeJavaScript('document.body.dataset.status');
@@ -1955,6 +2012,23 @@ async function runSelfTest() {
       }
     }
 
+    // --- default capture mode: the main shortcut honours settings.defaultMode ---
+    {
+      const prevDefault = settings.defaultMode;
+      settings.defaultMode = 'video';
+      hotkeyPressed('default');
+      await sleep(1000);
+      const m = overlays.length && overlays[0].win && !overlays[0].win.isDestroyed()
+        ? await overlays[0].win.webContents.executeJavaScript('document.body.dataset.mode')
+        : 'no-overlay';
+      console.log(m === 'video'
+        ? 'DEFAULT_MODE_OK main shortcut opened the overlay in record mode'
+        : `DEFAULT_MODE_FAIL mode=${m}`);
+      cancelSnip();
+      settings.defaultMode = prevDefault;
+      await sleep(400);
+    }
+
     // --- keep-everything: nothing may be trimmed, the bar still shows 3 ---
     {
       const allOnDisk = library.every((it) => fs.existsSync(it.file));
@@ -1995,7 +2069,7 @@ if (SMOKE || SELFTEST) {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => hotkeyPressed('image'));
+  app.on('second-instance', () => hotkeyPressed('default'));
 
   app.whenReady().then(() => {
     app.setAppUserModelId('no.cwb.snippit-good');
@@ -2012,9 +2086,9 @@ if (!app.requestSingleInstanceLock()) {
     screen.on('display-removed', ensureOverlayPool);
     screen.on('display-metrics-changed', ensureOverlayPool);
     applyAutoUpdateSetting();
-    if (!regHotkey(settings.shortcut, 'image')) {
+    if (!regHotkey(settings.shortcut, 'default')) {
       settings.shortcut = DEFAULT_SETTINGS.shortcut;
-      regHotkey(settings.shortcut, 'image');
+      regHotkey(settings.shortcut, 'default');
     }
     if (settings.recordShortcut === settings.shortcut) settings.recordShortcut = '';
     if (settings.recordShortcut && !regHotkey(settings.recordShortcut, 'video')) {

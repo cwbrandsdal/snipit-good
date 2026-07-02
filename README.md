@@ -45,12 +45,14 @@ Icons are generated from `assets/icon-source.png` and committed; after changing 
    - **Record:** a red frame marks the region and a floating bar appears. By default you get
      time to **prepare**: the desktop stays fully usable, and the frame can be **resized
      (corner/edge handles) and moved (drag its border)** until you press **Record** on the bar
-     (or the shortcut again). While recording, the bar shows the elapsed time with
+     (or the shortcut again). The bar has live **audio toggles** — mute/unmute **system audio**
+     and mute/enable the **microphone**, before or even during the recording (system sound and
+     mic are mixed into one track). While recording it shows the elapsed time with
      **pause/resume**, **stop** and **discard**; press the shortcut (either one) or use the tray
      to stop. Prefer zero friction? Turn off *Adjust before recording* in settings and recording
-     starts the instant you release the mouse. Recordings are saved as **MP4** (H.264, with
-     system audio if enabled) when the encoder is available, otherwise WebM, and the finished
-     **file is copied to the clipboard** so you can paste it straight into chats.
+     starts the instant you release the mouse. Recordings are saved as **MP4** (H.264 + AAC)
+     when the encoder is available, otherwise WebM, and the finished **file is copied to the
+     clipboard** so you can paste it straight into chats.
 5. Every capture is **saved permanently** to the storage folder (default
    `Pictures\snippit-good`, configurable) with a readable name like `snip-20260702-101530.png` —
    nothing is deleted automatically. The floating bar shows the **last 3** for quick access,
@@ -76,10 +78,16 @@ Open from the bar's gear icon or the tray menu:
   combination can't be registered.
 - **Recording shortcut** — opens the overlay directly in record mode; pressing it (or the capture
   shortcut) during a recording stops it.
+- **Default capture** — whether the main shortcut opens in Snip or Record mode (`Tab` always
+  switches in the overlay).
 - **Adjust before recording** (default on) — after dragging a region, fine-tune it and press
   **Record** when ready; off means recording starts the moment the drag ends.
 - **Copy on capture** — automatically put every new snip (or recording file) on the clipboard.
-- **Record system audio** — include what you hear in recordings (loopback capture).
+- **Record system audio** — recordings start with system sound on (loopback); the recording bar
+  can mute/unmute it live either way.
+- **Record microphone** — recordings start with the mic live; even when off, the recording
+  bar's mic button can bring it in mid-recording.
+- **Audio quality** — Low 64 / Standard 128 / High 192 kbps for the recorded audio track.
 - **Storage folder** — where all captures are written (default `Pictures\snippit-good`).
   Changing it affects new captures; existing ones stay where they are and remain in the library.
 

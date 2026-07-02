@@ -43,7 +43,7 @@ contextBridge.exposeInMainWorld('snippit', {
   frameRect: (rect) => ipcRenderer.send('frame:rect', rect),
 
   // recording HUD (control bar window doubles as the recorder)
-  onRecArm: (cb) => ipcRenderer.on('rec:arm', () => cb()),
+  onRecArm: (cb) => ipcRenderer.on('rec:arm', (_e, p) => cb(p)),
   onRecInit: (cb) => ipcRenderer.on('rec:init', (_e, p) => cb(p)),
   onRecStop: (cb) => ipcRenderer.on('rec:stop', (_e, p) => cb(p)),
   recRecord: () => ipcRenderer.send('rec:record'),

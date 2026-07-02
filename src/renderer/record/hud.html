@@ -6,8 +6,10 @@
   <title>snippit-good — recording</title>
   <link rel="stylesheet" href="hud.css" />
 </head>
-<body data-status="starting">
-  <!-- hidden capture pipeline: screen stream -> video -> cropped canvas -> MediaRecorder -->
+<body data-status="starting" data-sys="on" data-mic="off">
+  <!-- hidden capture pipeline: screen stream -> video -> cropped canvas -> MediaRecorder;
+       system loopback + microphone are mixed via WebAudio so both can be
+       muted/enabled live while recording -->
   <video id="feed" muted playsinline hidden></video>
   <canvas id="cv" hidden></canvas>
 
@@ -15,6 +17,15 @@
     <span id="dot"></span>
     <span id="time">…</span>
     <span class="flex"></span>
+    <button id="btn-sys" class="hud-btn audio-btn" title="System audio">
+      <svg class="ic-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.6 5.4a9 9 0 0 1 0 13.2"/></svg>
+      <svg class="ic-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="m16 9 6 6M22 9l-6 6"/></svg>
+    </button>
+    <button id="btn-mic" class="hud-btn audio-btn" title="Microphone">
+      <svg class="ic-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1"/><path d="M12 18v4"/></svg>
+      <svg class="ic-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1"/><path d="M12 18v4"/><path d="M4 4l16 16"/></svg>
+    </button>
+    <span class="asep"></span>
     <button id="btn-record" title="Start recording"><span class="rdot"></span><span>Record</span></button>
     <button id="btn-pause" class="hud-btn" title="Pause">
       <svg id="ic-pause" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h3.6v14H7zM13.4 5H17v14h-3.6z"/></svg>

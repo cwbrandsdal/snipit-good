@@ -1,7 +1,14 @@
 'use strict';
 const autoCopyBtn = document.getElementById('autocopy');
 const recAudioBtn = document.getElementById('recaudio');
+const recMicBtn = document.getElementById('recmic');
 const armRecordBtn = document.getElementById('armrecord');
+
+// segmented pickers: { element, settings key, default value }
+const SEGS = [
+  { el: document.getElementById('seg-mode'), key: 'defaultMode', def: 'image' },
+  { el: document.getElementById('seg-audioq'), key: 'audioQuality', def: 'standard' },
+];
 
 const DEFAULT_SHORTCUT = 'Ctrl+Shift+S';
 const DEFAULT_RECORD_SHORTCUT = 'Ctrl+Alt+R';
@@ -99,8 +106,13 @@ function paint() {
   for (const f of shortcutFields) f.paint();
   autoCopyBtn.setAttribute('aria-checked', String(!!current.autoCopy));
   recAudioBtn.setAttribute('aria-checked', String(current.recordAudio !== false));
+  recMicBtn.setAttribute('aria-checked', String(!!current.recordMic));
   armRecordBtn.setAttribute('aria-checked', String(current.armBeforeRecord !== false));
   autoUpdateBtn.setAttribute('aria-checked', String(current.autoUpdate !== false));
+  for (const s of SEGS) {
+    const value = current[s.key] || s.def;
+    s.el.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.v === value));
+  }
   document.getElementById('save-dir').textContent = current.saveDir || '…';
 }
 
@@ -115,7 +127,12 @@ async function apply(patch, statusTarget) {
 
 autoCopyBtn.addEventListener('click', () => apply({ autoCopy: !current.autoCopy }));
 recAudioBtn.addEventListener('click', () => apply({ recordAudio: current.recordAudio === false }, recField));
+recMicBtn.addEventListener('click', () => apply({ recordMic: !current.recordMic }, recField));
 armRecordBtn.addEventListener('click', () => apply({ armBeforeRecord: current.armBeforeRecord === false }, recField));
+for (const s of SEGS) {
+  s.el.querySelectorAll('button').forEach((b) =>
+    b.addEventListener('click', () => apply({ [s.key]: b.dataset.v }, recField)));
+}
 
 document.getElementById('btn-change-dir').addEventListener('click', async () => {
   current = await window.snippit.pickSaveDir();

@@ -47,6 +47,17 @@
 
     <section class="setting row">
       <div class="setting-head">
+        <h2>Default capture</h2>
+        <p>What the capture shortcut opens — <strong>Tab</strong> in the overlay always switches.</p>
+      </div>
+      <div class="seg" id="seg-mode">
+        <button data-v="image">Snip</button>
+        <button data-v="video">Record</button>
+      </div>
+    </section>
+
+    <section class="setting row">
+      <div class="setting-head">
         <h2>Adjust before recording</h2>
         <p>After you drag out an area, resize or move it and press <strong>Record</strong> when you're ready. Turn off to start recording the instant you release the mouse.</p>
       </div>
@@ -56,9 +67,29 @@
     <section class="setting row">
       <div class="setting-head">
         <h2>Record system audio</h2>
-        <p>Include the sound you hear in screen recordings.</p>
+        <p>Recordings start with the sound you hear included — the recording bar has a live mute toggle either way.</p>
       </div>
       <button class="switch" id="recaudio" role="switch" aria-checked="true"><span class="knob"></span></button>
+    </section>
+
+    <section class="setting row">
+      <div class="setting-head">
+        <h2>Record microphone</h2>
+        <p>Recordings start with your microphone live. Off by default — you can still enable the mic from the recording bar at any time, even mid-recording.</p>
+      </div>
+      <button class="switch" id="recmic" role="switch" aria-checked="false"><span class="knob"></span></button>
+    </section>
+
+    <section class="setting row">
+      <div class="setting-head">
+        <h2>Audio quality</h2>
+        <p>Bitrate for recorded audio (system + microphone).</p>
+      </div>
+      <div class="seg" id="seg-audioq">
+        <button data-v="low" title="64 kbps">Low</button>
+        <button data-v="standard" title="128 kbps">Standard</button>
+        <button data-v="high" title="192 kbps">High</button>
+      </div>
     </section>
 
     <section class="setting">

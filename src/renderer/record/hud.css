@@ -74,6 +74,19 @@ body[data-status='armed'] #btn-stop { display: none; }
 body[data-status='armed'] #dot { background: var(--text-faint); box-shadow: none; animation: none; }
 body[data-status='armed'] #time { color: var(--text-dim); font-size: 12.5px; }
 
+/* audio toggles: system loopback + microphone, live-mutable */
+#hud .asep { width: 1px; height: 18px; background: var(--line-strong); }
+.audio-btn .ic-off { display: none; }
+body[data-sys='off'] #btn-sys .ic-on,
+body[data-mic='off'] #btn-mic .ic-on { display: none; }
+body[data-sys='off'] #btn-sys .ic-off,
+body[data-mic='off'] #btn-mic .ic-off { display: block; }
+body[data-sys='off'] #btn-sys,
+body[data-mic='off'] #btn-mic { color: var(--text-faint); }
+body[data-mic='on'] #btn-mic { color: var(--accent); }
+body[data-sys='none'] #btn-sys,
+body[data-mic='none'] #btn-mic { opacity: 0.35; pointer-events: none; }
+
 /* state variants */
 #ic-play { display: none; }
 body[data-status='paused'] #ic-play { display: block; }
