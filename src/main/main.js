@@ -571,7 +571,6 @@ function makeHudWindow(bounds, opts = {}) {
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
-    resizable: false,
     movable: !!opts.movable,
     minimizable: false,
     maximizable: false,
@@ -579,6 +578,7 @@ function makeHudWindow(bounds, opts = {}) {
     alwaysOnTop: true,
     skipTaskbar: true,
     hasShadow: false,
+    enableLargerThanScreen: true,
     show: false,
     webPreferences: opts.preload
       ? { preload: PRELOAD, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false }
@@ -586,6 +586,11 @@ function makeHudWindow(bounds, opts = {}) {
   });
   win.setAlwaysOnTop(true, 'screen-saver');
   win.setContentProtection(true); // keep the HUD out of the recording where the OS honours it
+  // Windows clamps non-resizable windows to the (primary) work area while
+  // sizing, which cut the full-display frame off on taller side monitors —
+  // same dance as the overlay pool: size first, lock afterwards
+  win.setBounds(bounds);
+  win.setResizable(false);
   return win;
 }
 
@@ -1450,15 +1455,25 @@ async function runSelfTest() {
 
     // --- record mode, end to end: Tab toggle -> drag -> pause/resume -> stop ---
     {
+      // run on the TALLEST side monitor when there is one: side monitors taller
+      // than the primary used to clip the frame window, and the bug was only
+      // visible with the region in the display's lower part, below the
+      // primary's height — so that's exactly where the test region goes
+      const dPrim = screen.getPrimaryDisplay();
+      const dRec = screen.getAllDisplays()
+        .filter((d) => d.id !== dPrim.id)
+        .sort((a, b) => b.bounds.height - a.bounds.height)[0] || dPrim;
+      console.log(`record test on ${dRec === dPrim ? 'PRIMARY (no side monitor attached)' : 'side monitor'}`
+        + ` bounds=${JSON.stringify(dRec.bounds)}`);
+      const ry = dRec.bounds.height - 460; // region top: low on the display
       if (!capturing) {
         capturing = true;
         captureSession++;
-        const dT = screen.getPrimaryDisplay();
         presentOverlays([{
-          display: dT,
+          display: dRec,
           image: makeTestImage(
-            Math.round(dT.bounds.width * dT.scaleFactor),
-            Math.round(dT.bounds.height * dT.scaleFactor)),
+            Math.round(dRec.bounds.width * dRec.scaleFactor),
+            Math.round(dRec.bounds.height * dRec.scaleFactor)),
         }]);
         await sleep(800);
       }
@@ -1478,12 +1493,12 @@ async function runSelfTest() {
         // drag out a region — this is the real drag-to-record flow, ending in
         // overlay:select {mode:'video'} -> startRecording
         const send = (ev) => ovw.webContents.sendInputEvent(ev);
-        send({ type: 'mouseDown', x: 100, y: 100, button: 'left', clickCount: 1 });
+        send({ type: 'mouseDown', x: 100, y: ry, button: 'left', clickCount: 1 });
         for (let i = 1; i <= 8; i++) {
-          send({ type: 'mouseMove', x: 100 + i * 61, y: 100 + i * 40 });
+          send({ type: 'mouseMove', x: 100 + i * 61, y: ry + i * 40 });
           await sleep(15);
         }
-        send({ type: 'mouseUp', x: 588, y: 420, button: 'left', clickCount: 1 });
+        send({ type: 'mouseUp', x: 588, y: ry + 320, button: 'left', clickCount: 1 });
 
         // default settings ARM the recording first: adjustable frame + Record button
         let waited = 0;
@@ -1500,13 +1515,57 @@ async function runSelfTest() {
           console.log(`ARMED_OK region armed ~${waited}ms after drag rect=${JSON.stringify(recording.rect)}`);
           await sleep(500); // let the frame window paint its handles
           const fw = recording.frameWin;
+
+          // the frame window must COVER the whole display — taller-than-primary
+          // side monitors used to get it clipped at the primary's height.
+          // (A px or two of overhang from DIP<->physical rounding is fine.)
+          const fb = fw.getBounds();
+          const db = dRec.bounds;
+          const coversDisplay = fb.x <= db.x && fb.y <= db.y
+            && fb.x + fb.width >= db.x + db.width
+            && fb.y + fb.height >= db.y + db.height;
+          console.log(coversDisplay
+            ? `FRAME_COVER_OK frame covers the full display (frame ${fb.width}x${fb.height} vs display ${db.width}x${db.height})`
+            : `FRAME_COVER_CLIPPED frame=${JSON.stringify(fb)} display=${JSON.stringify(db)}`);
+
+          // real on-screen rendering of the HUD island: drop its content
+          // protection for a moment and grab the live screen, so corner
+          // transparency can actually be inspected (capturePage can't show it)
+          try {
+            recording.barWin.setContentProtection(false);
+            await sleep(350);
+            const caps = await captureAllDisplays();
+            recording.barWin.setContentProtection(true);
+            const cap = caps.find((c) => c.display.id === dRec.id);
+            if (cap) {
+              const csize = cap.image.getSize();
+              const kx = csize.width / dRec.bounds.width;
+              const ky = csize.height / dRec.bounds.height;
+              const bb = recording.barWin.getBounds();
+              const crop = {
+                x: Math.max(0, Math.round((bb.x - dRec.bounds.x - 30) * kx)),
+                y: Math.max(0, Math.round((bb.y - dRec.bounds.y - 30) * ky)),
+                width: Math.round((bb.width + 60) * kx),
+                height: Math.round((bb.height + 60) * ky),
+              };
+              crop.width = Math.min(crop.width, csize.width - crop.x);
+              crop.height = Math.min(crop.height, csize.height - crop.y);
+              fs.writeFileSync(path.join(outDir, 'hud-onscreen.png'), cap.image.crop(crop).toPNG());
+              console.log('HUD_ONSCREEN saved live-screen crop of the control bar');
+            } else {
+              console.log('HUD_ONSCREEN skipped: no capture for that display');
+            }
+          } catch (err) {
+            console.log(`HUD_ONSCREEN skipped: ${err.message}`);
+          }
+
           await shoot(fw, 'rec-frame-armed.png');
           // resize by dragging the SE handle +60/+60 (the box border sits 3px outside
           // the rect). Forwarding is paused so the REAL cursor's forwarded moves
           // can't pollute the synthetic drag.
           fw.setIgnoreMouseEvents(true);
           const gx = 100 + 488 + 3;
-          const gy = 100 + 320 + 3;
+          const gy = ry + 320 + 3;
           const fsend = (ev) => fw.webContents.sendInputEvent(ev);
           fsend({ type: 'mouseDown', x: gx, y: gy, button: 'left', clickCount: 1 });
           for (let i = 1; i <= 6; i++) {

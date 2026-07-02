@@ -11,7 +11,9 @@ html, body { background: transparent; overflow: hidden; }
   background: var(--bg-overlay);
   border: 1px solid var(--line-strong);
   border-radius: 999px;
-  box-shadow: var(--shadow);
+  /* no box-shadow: the pill fills the window edge to edge, so a shadow can
+     only paint into the corner notches — on screen that reads as smudged,
+     non-transparent corners instead of depth */
   -webkit-app-region: drag; /* the whole pill drags; buttons opt out */
 }
 #hud button { -webkit-app-region: no-drag; }
