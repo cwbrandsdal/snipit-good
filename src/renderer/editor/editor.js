@@ -1,6 +1,8 @@
 'use strict';
-/* snippit-good editor: vector op-list over a base image.
-   Every annotation (and crop) is an op; undo/redo just moves the op stack. */
+/* snippit-good library window: a scrollable history of every capture on the
+   left; images open in the annotation editor (vector op-list over a base
+   image — undo/redo just moves the op stack), recordings open in a playback
+   pane. Edits can be saved back to the library as re-editable variants. */
 
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
@@ -10,6 +12,10 @@ const textLayer = document.getElementById('text-layer');
 const dimsEl = document.getElementById('dims');
 const toast = document.getElementById('toast');
 const toastText = document.getElementById('toast-text');
+const sideList = document.getElementById('side-list');
+const sideCount = document.getElementById('side-count');
+const titleMeta = document.getElementById('title-meta');
+const vplayer = document.getElementById('vplayer');
 
 const SWATCH_COLORS = ['#ff5a4e', '#ff9f1c', '#ffe14d', '#35e0b4', '#3da9ff', '#c084fc', '#ffffff', '#111418'];
 const WIDTHS = [2, 4, 6, 10];
@@ -26,8 +32,12 @@ const state = {
   tempOp: null,
   cropMode: false,
   drawing: false,
-  snip: null,
+  snip: null,   // the currently open library item (image mode)
+  dirty: false, // unsaved annotation changes since the item was loaded
 };
+
+let items = [];       // library listing for the sidebar
+let currentId = null; // selected item id
 
 const baseImg = new Image();
 
@@ -226,6 +236,7 @@ function setZoom(z) {
 function pushOp(op) {
   state.ops.push(op);
   state.redo = [];
+  state.dirty = true;
   render();
 }
 
@@ -233,12 +244,14 @@ function undo() {
   if (!state.ops.length) return;
   commitText();
   state.redo.push(state.ops.pop());
+  state.dirty = true;
   render();
 }
 
 function redo() {
   if (!state.redo.length) return;
   state.ops.push(state.redo.pop());
+  state.dirty = true;
   render();
 }
 
@@ -512,6 +525,15 @@ document.getElementById('btn-save').addEventListener('click', saveImage);
 window.addEventListener('keydown', (e) => {
   if (activeText) return;
   const k = e.key.toLowerCase();
+  if (document.body.classList.contains('mode-video')) {
+    // playback pane: Ctrl+C copies the video file
+    if (e.ctrlKey && k === 'c' && currentId) {
+      e.preventDefault();
+      window.snippit.copySnip(currentId).then((ok) => showToast(ok ? 'File copied — paste it anywhere' : 'Copy failed'));
+    }
+    return;
+  }
+  if (document.body.classList.contains('mode-empty')) return;
   if (e.ctrlKey && k === 'z') { e.preventDefault(); undo(); return; }
   if (e.ctrlKey && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); redo(); return; }
   if (e.ctrlKey && k === 'c') { e.preventDefault(); copyToClipboard(); return; }
@@ -522,21 +544,211 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') { state.tempOp = null; state.drawing = false; setCropMode(false); render(); }
 });
 
+/* ---------------- save as variant ---------------- */
+
+async function saveVariant() {
+  if (document.body.classList.contains('mode-video') || !state.snip) return;
+  commitText();
+  state.tempOp = null;
+  render();
+  if (!state.ops.length) {
+    showToast('Draw something first — variants capture your edits');
+    return;
+  }
+  // ops always replay over the ORIGINAL pixels: when a variant is open, its
+  // parent is the true owner of the base image
+  const parentId = state.snip.ops ? (state.snip.parentId || state.snip.id) : state.snip.id;
+  const newId = await window.snippit.libraryAddVariant({
+    parentId,
+    dataUrl: canvas.toDataURL('image/png'),
+    ops: state.ops,
+  });
+  if (newId) {
+    state.dirty = false;
+    showToast('Saved to library');
+  } else {
+    showToast('Could not save the variant');
+  }
+}
+document.getElementById('btn-variant').addEventListener('click', saveVariant);
+
+/* ---------------- history sidebar ---------------- */
+
+const KIND_ICONS = {
+  image: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>',
+  video: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="2" y="6" width="13" height="12" rx="2"/><path d="M15 10.5 22 7v10l-7-3.5"/></svg>',
+};
+
+function fmtDuration(ms) {
+  const s = Math.max(1, Math.round(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+function fmtWhen(ts) {
+  const d = new Date(ts);
+  const today = new Date();
+  const sameDay = d.toDateString() === today.toDateString();
+  const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  if (sameDay) return time;
+  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')} ${time}`;
+}
+
+function renderList() {
+  sideList.replaceChildren();
+  sideCount.textContent = items.length ? `${items.length}` : '';
+  for (const it of items) {
+    const card = document.createElement('div');
+    card.className = 'side-item';
+    if (it.id === currentId) card.classList.add('active');
+    card.title = it.fileName;
+
+    if (it.thumbUrl) {
+      const img = document.createElement('img');
+      img.src = it.thumbUrl;
+      img.loading = 'lazy';
+      img.draggable = false;
+      card.appendChild(img);
+    } else {
+      const ph = document.createElement('div');
+      ph.className = 'no-thumb';
+      ph.innerHTML = KIND_ICONS[it.kind] || KIND_ICONS.image;
+      card.appendChild(ph);
+    }
+
+    if (it.kind === 'video') {
+      const tag = document.createElement('span');
+      tag.className = 'tag video';
+      tag.textContent = fmtDuration(it.durationMs);
+      card.appendChild(tag);
+    } else if (it.parentId) {
+      const tag = document.createElement('span');
+      tag.className = 'tag edit';
+      tag.textContent = 'EDIT';
+      card.appendChild(tag);
+    }
+
+    const meta = document.createElement('div');
+    meta.className = 'side-meta';
+    meta.innerHTML = `${KIND_ICONS[it.kind] || KIND_ICONS.image}<span>${it.width} × ${it.height}</span>`;
+    const when = document.createElement('span');
+    when.className = 'when';
+    when.textContent = fmtWhen(it.createdAt);
+    meta.appendChild(when);
+    card.appendChild(meta);
+
+    const del = document.createElement('button');
+    del.className = 'side-del';
+    del.title = 'Delete from history (removes the file)';
+    del.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg>';
+    del.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (confirm('Delete this capture permanently? The file is removed from disk.')) {
+        window.snippit.removeSnip(it.id);
+      }
+    });
+    card.appendChild(del);
+
+    card.addEventListener('click', () => selectItem(it.id));
+    sideList.appendChild(card);
+  }
+}
+
+function setMode(mode) {
+  document.body.classList.toggle('mode-video', mode === 'video');
+  document.body.classList.toggle('mode-empty', mode === 'empty');
+  document.getElementById('empty-pane').hidden = mode !== 'empty';
+  document.getElementById('video-pane').hidden = mode !== 'video';
+  if (mode !== 'video') {
+    vplayer.pause();
+    vplayer.removeAttribute('src');
+    vplayer.load();
+  }
+}
+
+async function selectItem(id, opts = {}) {
+  if (id === currentId && !opts.force) return;
+  if (state.dirty && !opts.force
+    && !confirm('Discard the unsaved annotations on the current image?')) return;
+  const item = await window.snippit.libraryGet(id);
+  if (!item) { await refreshList(); return; }
+  currentId = id;
+  state.dirty = false;
+  [...sideList.children].forEach((el, i) =>
+    el.classList.toggle('active', items[i] && items[i].id === id));
+  titleMeta.textContent = item.fileName || '';
+
+  if (item.kind === 'video') {
+    setMode('video');
+    state.snip = null;
+    document.getElementById('video-meta').textContent =
+      `${item.width} × ${item.height} · ${fmtDuration(item.durationMs)}`;
+    vplayer.src = item.fileUrl;
+    // MediaRecorder webm files report Infinity until the tail is parsed
+    vplayer.addEventListener('loadedmetadata', () => {
+      if (!Number.isFinite(vplayer.duration)) {
+        const back = () => { vplayer.currentTime = 0; vplayer.removeEventListener('seeked', back); };
+        vplayer.addEventListener('seeked', back);
+        vplayer.currentTime = 1e7;
+      }
+    }, { once: true });
+    return;
+  }
+
+  setMode('image');
+  if (activeText) { activeText.ta.remove(); activeText = null; } // drop, don't commit into the new item
+  state.snip = item;
+  state.tempOp = null;
+  state.drawing = false;
+  state.cropMode = false;
+  state.redo = [];
+  state.ops = Array.isArray(item.ops) ? JSON.parse(JSON.stringify(item.ops)) : [];
+  await new Promise((resolve, reject) => {
+    baseImg.onload = resolve;
+    baseImg.onerror = reject;
+    baseImg.src = item.dataUrl;
+  }).catch(() => {});
+  render();
+  fitZoom();
+}
+
+async function refreshList(keepSelection = true) {
+  items = await window.snippit.libraryList();
+  if (!items.length) {
+    currentId = null;
+    state.snip = null;
+    renderList();
+    setMode('empty');
+    titleMeta.textContent = '';
+    return;
+  }
+  const stillThere = keepSelection && items.some((i) => i.id === currentId);
+  renderList();
+  if (!stillThere) await selectItem(items[0].id, { force: true });
+}
+
+/* video pane actions */
+document.getElementById('btn-vcopy').addEventListener('click', async () => {
+  showToast((await window.snippit.copySnip(currentId)) ? 'File copied — paste it anywhere' : 'Copy failed');
+});
+document.getElementById('btn-vsave').addEventListener('click', async () => {
+  if (await window.snippit.saveVideo(currentId)) showToast('Saved');
+});
+document.getElementById('btn-vfolder').addEventListener('click', () => {
+  window.snippit.libraryShowInFolder(currentId);
+});
+
+window.snippit.onLibraryChanged(() => refreshList(true));
+window.snippit.onLibrarySelect((id) => selectItem(id));
+
 /* ---------------- boot ---------------- */
 
 (async function boot() {
   setColor(state.color);
   setWidth(state.width);
   const id = new URLSearchParams(location.search).get('id');
-  const snip = await window.snippit.getSnip(id);
-  if (!snip) {
-    dimsEl.textContent = 'Snip not found';
-    return;
-  }
-  state.snip = snip;
-  baseImg.onload = () => {
-    render();
-    fitZoom();
-  };
-  baseImg.src = snip.dataUrl;
+  items = await window.snippit.libraryList();
+  renderList();
+  if (!items.length) { setMode('empty'); return; }
+  const target = id && items.some((i) => i.id === id) ? id : items[0].id;
+  await selectItem(target, { force: true });
 })();

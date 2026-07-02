@@ -98,6 +98,20 @@ main {
 
 .setting.note { border-style: dashed; background: transparent; }
 
+.folder-row { margin-top: 11px; }
+.folder-row .path {
+  display: block;
+  font-size: 12px;
+  color: var(--text-dim);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  word-break: break-all;
+  user-select: text;
+}
+.folder-actions { display: flex; gap: 8px; margin-top: 8px; }
+
 .setting-row-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
 .setting a { color: var(--accent); text-decoration: none; }
 .setting a:hover { text-decoration: underline; }

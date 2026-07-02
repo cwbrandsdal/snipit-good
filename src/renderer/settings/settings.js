@@ -101,6 +101,7 @@ function paint() {
   recAudioBtn.setAttribute('aria-checked', String(current.recordAudio !== false));
   armRecordBtn.setAttribute('aria-checked', String(current.armBeforeRecord !== false));
   autoUpdateBtn.setAttribute('aria-checked', String(current.autoUpdate !== false));
+  document.getElementById('save-dir').textContent = current.saveDir || '…';
 }
 
 async function apply(patch, statusTarget) {
@@ -115,6 +116,12 @@ async function apply(patch, statusTarget) {
 autoCopyBtn.addEventListener('click', () => apply({ autoCopy: !current.autoCopy }));
 recAudioBtn.addEventListener('click', () => apply({ recordAudio: current.recordAudio === false }, recField));
 armRecordBtn.addEventListener('click', () => apply({ armBeforeRecord: current.armBeforeRecord === false }, recField));
+
+document.getElementById('btn-change-dir').addEventListener('click', async () => {
+  current = await window.snippit.pickSaveDir();
+  paint();
+});
+document.getElementById('btn-open-dir').addEventListener('click', () => window.snippit.openSaveDir());
 
 /* --- updates --- */
 

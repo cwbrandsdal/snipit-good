@@ -1,9 +1,10 @@
 # snippit-good
 
 A lightweight Windows screenshot **and screen-recording** utility built for speed: snip with a
-shortcut, keep your last three captures in a small floating bar in the lower-left corner,
-annotate in one click, copy to clipboard and move on. The same overlay records any region of
-the screen to MP4/WebM — press `Tab` to switch between snip and record.
+shortcut, annotate in one click, copy to clipboard and move on. The same overlay records any
+region of the screen to MP4/WebM — press `Tab` to switch between snip and record. **Every
+capture is kept** in a storage folder you choose, browsable in a built-in library where you can
+re-edit anything and save edits as new variants.
 
 ## Install
 
@@ -48,13 +49,20 @@ Icons are generated from `assets/icon-source.png` and committed; after changing 
      starts the instant you release the mouse. Recordings are saved as **MP4** (H.264, with
      system audio if enabled) when the encoder is available, otherwise WebM, and the finished
      **file is copied to the clipboard** so you can paste it straight into chats.
-5. The newest capture gets a mint "NEW" ring. The bar keeps the **last 3** captures, lingers for
-   ~10 seconds, then fades away on its own — hover it to keep it around, or pin it open.
-6. **Hover a thumbnail** for actions: edit/play, copy, remove. Clicking a snip opens the editor;
-   clicking a recording opens the built-in player (copy file / save as / show in folder).
+5. Every capture is **saved permanently** to the storage folder (default
+   `Pictures\snippit-good`, configurable) with a readable name like `snip-20260702-101530.png` —
+   nothing is deleted automatically. The floating bar shows the **last 3** for quick access,
+   lingers ~10 seconds, then fades — hover to keep it, or pin it open.
+6. **The library** (click any thumbnail, the bar's clock button, or the tray's *Library*) is one
+   window with your **whole history in a scrollable sidebar** — snips, recordings and edits.
+   Click an image to annotate it; click a recording to play it (copy file / save as / show in
+   folder). Deleting there (or in the bar) removes the file for real.
 7. **Editor** — pen, highlighter, rectangle, circle, line, arrow, text, and pixelate, with colour
    and stroke-width pickers, undo/redo (`Ctrl+Z` / `Ctrl+Y`), zoom (`Ctrl+wheel`), crop/reset, save
    to PNG (`Ctrl+S`), and **Copy to clipboard** (`Ctrl+C`).
+8. **Save to library** stores your annotated result as a **new variant** — the original stays
+   untouched, and the variant remembers its annotation ops, so reopening it later lets you keep
+   editing (move/remove shapes via undo, add more) as long as the original is still around.
 
 ## Settings
 
@@ -68,10 +76,12 @@ Open from the bar's gear icon or the tray menu:
   **Record** when ready; off means recording starts the moment the drag ends.
 - **Copy on capture** — automatically put every new snip (or recording file) on the clipboard.
 - **Record system audio** — include what you hear in recordings (loopback capture).
+- **Storage folder** — where all captures are written (default `Pictures\snippit-good`).
+  Changing it affects new captures; existing ones stay where they are and remain in the library.
 
-Settings persist in `%APPDATA%/snippit-good/settings.json`; recent captures in
-`%APPDATA%/snippit-good/snips/` (only the latest three are kept — recordings auto-stop after
-30 minutes as a disk-space guard).
+Settings persist in `%APPDATA%/snippit-good/settings.json`, the library index in
+`%APPDATA%/snippit-good/library.json`, thumbnails in `%APPDATA%/snippit-good/thumbs/`.
+Recordings auto-stop after 30 minutes as a disk-space guard.
 
 ## Editor shortcuts
 
@@ -88,14 +98,13 @@ Settings persist in `%APPDATA%/snippit-good/settings.json`; recent captures in
 
 ```
 src/
-  main/main.js          app lifecycle, capture + recording orchestration, tray, shortcuts, store
+  main/main.js          app lifecycle, capture/recording orchestration, tray, shortcuts, library
   preload/preload.js    contextBridge IPC surface
   renderer/
     overlay/            fullscreen snipping overlay with snip/record mode (one per display)
-    bar/                floating recent-captures bar
-    editor/             annotation editor (vector op-list over the base image)
+    bar/                floating recent-captures bar (newest 3 library items)
+    editor/             library window: history sidebar + annotation editor + video playback
     record/             recording HUD: region frame + control bar (hosts the MediaRecorder)
-    player/             built-in playback window for recordings
     settings/           shortcut recorders + options
 scripts/gen-icon.js     generates assets/icon.png + tray.png (hand-rolled PNG encoder)
 ```

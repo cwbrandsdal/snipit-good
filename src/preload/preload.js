@@ -22,8 +22,16 @@ contextBridge.exposeInMainWorld('snippit', {
   removeSnip: (id) => ipcRenderer.send('snip:remove', id),
   openSettings: () => ipcRenderer.send('settings:open'),
 
+  // library window (editor + history + playback)
+  openLibrary: () => ipcRenderer.send('library:open'),
+  libraryList: () => ipcRenderer.invoke('library:list'),
+  libraryGet: (id) => ipcRenderer.invoke('library:get-item', id),
+  libraryAddVariant: (payload) => ipcRenderer.invoke('library:add-variant', payload),
+  libraryShowInFolder: (id) => ipcRenderer.send('library:show-in-folder', id),
+  onLibraryChanged: (cb) => ipcRenderer.on('library:changed', () => cb()),
+  onLibrarySelect: (cb) => ipcRenderer.on('library:select', (_e, id) => cb(id)),
+
   // editor
-  getSnip: (id) => ipcRenderer.invoke('editor:get-snip', id),
   copyImage: (dataUrl) => ipcRenderer.invoke('image:copy', dataUrl),
   saveImage: (dataUrl, name) => ipcRenderer.invoke('image:save', { dataUrl, name }),
 
@@ -45,15 +53,15 @@ contextBridge.exposeInMainWorld('snippit', {
   recDone: (payload) => ipcRenderer.send('rec:done', payload),
   recError: (message) => ipcRenderer.send('rec:error', message),
 
-  // video player
+  // video
   playVideo: (id) => ipcRenderer.send('video:play', id),
-  getVideoSnip: (id) => ipcRenderer.invoke('player:get-snip', id),
   saveVideo: (id) => ipcRenderer.invoke('video:save', id),
-  showVideoInFolder: (id) => ipcRenderer.send('video:show-in-folder', id),
 
   // settings
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
+  pickSaveDir: () => ipcRenderer.invoke('settings:pick-folder'),
+  openSaveDir: () => ipcRenderer.send('settings:open-folder'),
 
   // updates
   getUpdateState: () => ipcRenderer.invoke('update:get-state'),

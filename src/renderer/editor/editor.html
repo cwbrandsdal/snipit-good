@@ -2,15 +2,43 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src data:; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com" />
-  <title>snippit-good editor</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src data: file:; media-src 'self' file:; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com" />
+  <title>snippit-good library</title>
   <link rel="stylesheet" href="editor.css" />
 </head>
 <body>
   <header id="titlebar">
     <span class="brand">snippit<span class="dot">-</span>good</span>
-    <span class="title-sub">editor</span>
+    <span class="title-sub">library</span>
+    <span class="spacer"></span>
+    <span id="title-meta"></span>
   </header>
+
+  <div id="main">
+  <aside id="sidebar">
+    <div id="side-head">
+      <span>History</span>
+      <span id="side-count"></span>
+    </div>
+    <div id="side-list"></div>
+  </aside>
+
+  <div id="content">
+  <div id="empty-pane" hidden>Nothing here yet — press the capture shortcut to take a snip.</div>
+
+  <div id="video-pane" hidden>
+    <div id="video-stage"><video id="vplayer" controls></video></div>
+    <footer id="video-bar">
+      <span id="video-meta" class="dims"></span>
+      <span class="flex-spacer"></span>
+      <button class="btn-primary" id="btn-vcopy" title="Copy the video file — paste it into chats or folders">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        Copy file
+      </button>
+      <button class="btn-ghost" id="btn-vsave">Save as…</button>
+      <button class="btn-ghost" id="btn-vfolder">Show in folder</button>
+    </footer>
+  </div>
 
   <div id="toolbar">
     <div class="tool-group" id="tools">
@@ -87,6 +115,10 @@
       </button>
     </div>
 
+    <button class="btn-ghost" id="btn-variant" title="Save the annotated result as a new library item — the original stays untouched">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>
+      Save to library
+    </button>
     <button class="btn-primary" id="btn-copy">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
       Copy to clipboard
@@ -117,6 +149,8 @@
       Save image
     </button>
   </footer>
+  </div><!-- /#content -->
+  </div><!-- /#main -->
 
   <div id="color-pop" class="popover" hidden>
     <div class="swatches"></div>

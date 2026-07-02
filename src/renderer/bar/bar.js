@@ -134,7 +134,7 @@ function render({ snips, shortcut, pinBar, event }) {
     actions.appendChild(mkBtn('copy', isVideo ? 'Copy file to clipboard' : 'Copy to clipboard', '', async () => {
       if (await window.snippit.copySnip(snip.id)) showChip('Copied');
     }));
-    actions.appendChild(mkBtn('del', 'Remove from recent snips', 'del', () => window.snippit.removeSnip(snip.id)));
+    actions.appendChild(mkBtn('del', 'Delete from history (removes the file)', 'del', () => window.snippit.removeSnip(snip.id)));
     card.appendChild(actions);
 
     card.addEventListener('click', open);
@@ -156,3 +156,4 @@ window.snippit.onSnips(render);
 document.getElementById('btn-hide').addEventListener('click', () => window.snippit.hideBar());
 document.getElementById('btn-new').addEventListener('click', () => window.snippit.newSnip());
 document.getElementById('btn-settings').addEventListener('click', () => window.snippit.openSettings());
+document.getElementById('btn-library').addEventListener('click', () => window.snippit.openLibrary());

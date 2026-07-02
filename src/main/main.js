@@ -31,23 +31,32 @@ const DEFAULT_SETTINGS = {
   autoUpdate: true,
   recordAudio: true,
   armBeforeRecord: true, // pick a region, adjust it, press Record — vs. record instantly
+  saveDir: '', // where captures are written; resolved to Pictures\snippit-good when empty
 };
 
 let settings = { ...DEFAULT_SETTINGS };
-let snips = []; // { id, kind: 'image'|'video', file, poster?, width, height, durationMs?, createdAt }
+// the library keeps EVERY capture — nothing is trimmed automatically.
+// { id, kind: 'image'|'video', file, poster?, thumb?, width, height,
+//   durationMs?, createdAt, parentId?, ops? }
+// parentId/ops: an edited variant — ops replay over the parent image, so
+// variants stay re-editable as long as the parent file exists.
+let library = [];
 let tray = null;
 let barWin = null;
 let settingsWin = null;
+let libraryWin = null; // singleton editor/library window
 let overlays = []; // { win, display, image }
-let editors = new Map(); // snip id -> BrowserWindow
-let players = new Map(); // video snip id -> BrowserWindow
 let capturing = false;
 let snipMode = 'image'; // what a finished overlay drag does: 'image' | 'video'
 let quitting = false;
 
-const snipsDir = () => path.join(app.getPath('userData'), 'snips');
+const snipsDir = () => path.join(app.getPath('userData'), 'snips'); // pre-library store, kept for migration
+const thumbsDir = () => path.join(app.getPath('userData'), 'thumbs');
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
 const metaFile = () => path.join(snipsDir(), 'snips.json');
+const libraryFile = () => path.join(app.getPath('userData'), 'library.json');
+
+const newId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
 /* ---------------- persistence ---------------- */
 
@@ -55,24 +64,81 @@ function loadSettings() {
   try {
     settings = { ...DEFAULT_SETTINGS, ...JSON.parse(fs.readFileSync(settingsFile(), 'utf8')) };
   } catch { settings = { ...DEFAULT_SETTINGS }; }
+  if (!settings.saveDir) settings.saveDir = defaultSaveDir();
 }
 
 function saveSettings() {
   try { fs.writeFileSync(settingsFile(), JSON.stringify(settings, null, 2)); } catch {}
 }
 
-function loadSnips() {
-  try {
-    const meta = JSON.parse(fs.readFileSync(metaFile(), 'utf8'));
-    snips = meta.filter((s) => fs.existsSync(s.file)).slice(0, MAX_SNIPS);
-  } catch { snips = []; }
+function defaultSaveDir() {
+  return path.join(app.getPath('pictures'), 'snippit-good');
 }
 
-function saveSnipsMeta() {
+// capture destination; falls back to the default when the chosen folder is
+// gone (unplugged drive, deleted folder, …) so captures never get lost
+function resolveSaveDir() {
+  let dir = settings.saveDir || defaultSaveDir();
   try {
-    fs.mkdirSync(snipsDir(), { recursive: true });
-    fs.writeFileSync(metaFile(), JSON.stringify(snips, null, 2));
-  } catch {}
+    fs.mkdirSync(dir, { recursive: true });
+    return dir;
+  } catch {
+    dir = defaultSaveDir();
+    fs.mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+}
+
+// human-readable, collision-free file name: <prefix>-YYYYMMDD-HHMMSS[-n]
+function stampName(dir, prefix, ext) {
+  const d = new Date();
+  const p2 = (n) => String(n).padStart(2, '0');
+  const stamp = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
+  const taken = (name) => (ext ? [ext] : ['mp4', 'webm'])
+    .some((x) => fs.existsSync(path.join(dir, `${name}.${x}`)));
+  let name = `${prefix}-${stamp}`;
+  for (let i = 2; taken(name); i++) name = `${prefix}-${stamp}-${i}`;
+  return name;
+}
+
+function loadLibrary() {
+  try {
+    library = JSON.parse(fs.readFileSync(libraryFile(), 'utf8')).filter((it) => it && it.file);
+  } catch {
+    library = [];
+    // one-time migration from the old last-3 snip store
+    try {
+      const meta = JSON.parse(fs.readFileSync(metaFile(), 'utf8'));
+      library = meta
+        .filter((s) => s && s.file && fs.existsSync(s.file))
+        .map((s) => ({ kind: 'image', ...s }));
+      if (library.length) saveLibrary();
+      try { fs.unlinkSync(metaFile()); } catch {}
+    } catch {}
+  }
+  library = library.filter((it) => {
+    try { return fs.existsSync(it.file); } catch { return false; }
+  });
+}
+
+function saveLibrary() {
+  try { fs.writeFileSync(libraryFile(), JSON.stringify(library, null, 2)); } catch (err) {
+    console.error('failed to save library index:', err);
+  }
+}
+
+// thumbnails live in userData so the user's capture folder stays clean
+function writeThumb(id, image) {
+  try {
+    fs.mkdirSync(thumbsDir(), { recursive: true });
+    const file = path.join(thumbsDir(), `${id}.jpg`);
+    fs.writeFileSync(file, image.resize({ width: 360 }).toJPEG(80));
+    return file;
+  } catch { return null; }
+}
+
+function notifyLibraryChanged() {
+  if (libraryWin && !libraryWin.isDestroyed()) libraryWin.webContents.send('library:changed');
 }
 
 /* ---------------- snips bar ---------------- */
@@ -111,12 +177,13 @@ function positionBar(height) {
   });
 }
 
+// the bar shows the newest few library items for quick access
 function snipPayload() {
-  return snips.map((s) => {
+  return library.slice(0, MAX_SNIPS).map((s) => {
     let thumb = '';
     try {
-      const src = s.kind === 'video' ? s.poster : s.file;
-      if (src) {
+      const src = s.thumb || s.poster || (s.kind !== 'video' ? s.file : null);
+      if (src && fs.existsSync(src)) {
         const img = nativeImage.createFromPath(src);
         if (!img.isEmpty()) thumb = img.resize({ width: 360 }).toDataURL();
       }
@@ -141,11 +208,11 @@ function pushSnipsToBar(event) {
     pinBar: !!settings.pinBar,
     event: event || null,
   });
-  if (snips.length === 0) barWin.hide();
+  if (library.length === 0) barWin.hide();
 }
 
 function showBar() {
-  if (!barWin || barWin.isDestroyed() || snips.length === 0) return;
+  if (!barWin || barWin.isDestroyed() || library.length === 0) return;
   if (!barWin.isVisible()) barWin.showInactive();
   // (re)arm the renderer's auto-hide countdown
   barWin.webContents.send('bar:visible');
@@ -457,26 +524,22 @@ function finalizeCapture(displayId, rect) {
   }
 }
 
-// drop entries beyond MAX_SNIPS and delete their files from disk
-function trimSnips() {
-  for (const old of snips.splice(MAX_SNIPS)) {
-    try { fs.unlinkSync(old.file); } catch {}
-    if (old.poster) { try { fs.unlinkSync(old.poster); } catch {} }
-  }
-}
-
 function addSnip(image) {
-  fs.mkdirSync(snipsDir(), { recursive: true });
-  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-  const file = path.join(snipsDir(), `snip-${id}.png`);
-  try { fs.writeFileSync(file, image.toPNG()); } catch (err) {
+  const id = newId();
+  let file;
+  try {
+    const dir = resolveSaveDir();
+    file = path.join(dir, `${stampName(dir, 'snip', 'png')}.png`);
+    fs.writeFileSync(file, image.toPNG());
+  } catch (err) {
     console.error('failed to save snip:', err);
     return;
   }
   const { width, height } = image.getSize();
-  snips.unshift({ id, kind: 'image', file, width, height, createdAt: Date.now() });
-  trimSnips();
-  saveSnipsMeta();
+  library.unshift({
+    id, kind: 'image', file, thumb: writeThumb(id, image), width, height, createdAt: Date.now(),
+  });
+  saveLibrary();
 
   let event = { type: 'captured', id };
   if (settings.autoCopy) {
@@ -485,18 +548,21 @@ function addSnip(image) {
   }
   pushSnipsToBar(event);
   showBar();
+  notifyLibraryChanged();
 }
 
+// explicit delete: removes the capture from the library AND from disk
 function removeSnip(id) {
-  const idx = snips.findIndex((s) => s.id === id);
+  const idx = library.findIndex((s) => s.id === id);
   if (idx === -1) return;
-  try { fs.unlinkSync(snips[idx].file); } catch {}
-  if (snips[idx].poster) { try { fs.unlinkSync(snips[idx].poster); } catch {} }
-  const win = players.get(id) || editors.get(id);
-  if (win && !win.isDestroyed()) win.close();
-  snips.splice(idx, 1);
-  saveSnipsMeta();
+  const it = library[idx];
+  for (const f of [it.file, it.poster, it.thumb]) {
+    if (f) { try { fs.unlinkSync(f); } catch {} }
+  }
+  library.splice(idx, 1);
+  saveLibrary();
   pushSnipsToBar();
+  notifyLibraryChanged();
 }
 
 /* ---------------- screen recording ---------------- */
@@ -615,12 +681,12 @@ async function startRecording(display, rect) {
   rect.h = Math.min(rect.h, display.bounds.height - rect.y);
   if (rect.w < 8 || rect.h < 8) { showBar(); return; }
 
-  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-  fs.mkdirSync(snipsDir(), { recursive: true });
+  const id = newId();
+  fs.mkdirSync(thumbsDir(), { recursive: true });
   recording = {
     id, display, rect,
     source: null, frameWin: null, barWin: null,
-    file: null, poster: path.join(snipsDir(), `rec-${id}.jpg`),
+    file: null, poster: path.join(thumbsDir(), `${id}.jpg`),
     stream: null, meta: null, status: 'starting',
     startedAt: 0, finalizing: false, safetyTimer: null, autoStopTimer: null,
   };
@@ -792,18 +858,18 @@ async function finalizeRecording({ durationMs = 0, discard = false, videoFrames 
 function addVideoSnip(rec, durationMs) {
   const meta = rec.meta || {};
   const poster = fs.existsSync(rec.poster) ? rec.poster : null;
-  snips.unshift({
+  library.unshift({
     id: rec.id,
     kind: 'video',
     file: rec.file,
     poster,
+    thumb: poster,
     width: meta.width || rec.rect.w,
     height: meta.height || rec.rect.h,
     durationMs,
     createdAt: Date.now(),
   });
-  trimSnips();
-  saveSnipsMeta();
+  saveLibrary();
   let event = { type: 'captured', id: rec.id };
   if (settings.autoCopy) {
     copyFileToClipboard(rec.file);
@@ -811,6 +877,7 @@ function addVideoSnip(rec, durationMs) {
   }
   pushSnipsToBar(event);
   showBar();
+  notifyLibraryChanged();
 }
 
 /* a video can't go on the clipboard as pixels — copy it as a *file* drop list
@@ -839,8 +906,9 @@ ipcMain.on('rec:started', (e, meta) => {
   const rec = recording;
   rec.meta = meta || {};
   const ext = rec.meta.ext === 'mp4' ? 'mp4' : 'webm';
-  rec.file = path.join(snipsDir(), `rec-${rec.id}.${ext}`);
   try {
+    const dir = resolveSaveDir();
+    rec.file = path.join(dir, `${stampName(dir, 'rec', ext)}.${ext}`);
     rec.stream = fs.createWriteStream(rec.file);
   } catch (err) {
     failRecording(`Could not write the video file (${err.message}).`);
@@ -920,22 +988,20 @@ ipcMain.on('frame:rect', (e, r) => {
   }
 });
 
-/* ---------------- video player ---------------- */
+/* ---------------- library window (editor + history + playback) ---------------- */
 
-function openPlayer(id) {
-  const snip = snips.find((s) => s.id === id && s.kind === 'video');
-  if (!snip) return;
-  const existing = players.get(id);
-  if (existing && !existing.isDestroyed()) {
-    existing.show();
-    existing.focus();
+function openLibrary(id) {
+  if (libraryWin && !libraryWin.isDestroyed()) {
+    libraryWin.show();
+    libraryWin.focus();
+    if (id) libraryWin.webContents.send('library:select', id);
     return;
   }
-  const win = new BrowserWindow({
-    width: 980,
-    height: 700,
-    minWidth: 560,
-    minHeight: 420,
+  libraryWin = new BrowserWindow({
+    width: 1380,
+    height: 860,
+    minWidth: 960,
+    minHeight: 560,
     backgroundColor: '#15161b',
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: '#15161b', symbolColor: '#a7adba', height: 42 },
@@ -943,40 +1009,9 @@ function openPlayer(id) {
     show: false,
     webPreferences: { preload: PRELOAD, contextIsolation: true, nodeIntegration: false },
   });
-  win.loadFile(renderer('player/player.html'), { query: { id } });
-  win.once('ready-to-show', () => win.show());
-  win.on('closed', () => players.delete(id));
-  players.set(id, win);
-}
-
-/* ---------------- editor ---------------- */
-
-function openEditor(id) {
-  const snip = snips.find((s) => s.id === id);
-  if (!snip) return;
-  if (snip.kind === 'video') { openPlayer(id); return; }
-  const existing = editors.get(id);
-  if (existing && !existing.isDestroyed()) {
-    existing.show();
-    existing.focus();
-    return;
-  }
-  const win = new BrowserWindow({
-    width: 1160,
-    height: 800,
-    minWidth: 780,
-    minHeight: 540,
-    backgroundColor: '#15161b',
-    titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#15161b', symbolColor: '#a7adba', height: 42 },
-    icon: asset('icon.png'),
-    show: false,
-    webPreferences: { preload: PRELOAD, contextIsolation: true, nodeIntegration: false },
-  });
-  win.loadFile(renderer('editor/editor.html'), { query: { id } });
-  win.once('ready-to-show', () => win.show());
-  win.on('closed', () => editors.delete(id));
-  editors.set(id, win);
+  libraryWin.loadFile(renderer('editor/editor.html'), { query: { id: id || '' } });
+  libraryWin.once('ready-to-show', () => libraryWin.show());
+  libraryWin.on('closed', () => { libraryWin = null; });
 }
 
 /* ---------------- settings window ---------------- */
@@ -1131,7 +1166,8 @@ function createTray() {
       enabled: !recording,
       click: () => { if (!recording) startSnip('video'); },
     });
-    items.push({ label: 'Show recent snips', click: () => { if (snips.length) showBar(); } });
+    items.push({ label: 'Show recent snips', click: () => { if (library.length) showBar(); } });
+    items.push({ label: 'Library — all captures', click: () => openLibrary() });
     items.push({ label: 'Settings…', click: () => openSettings() });
     items.push({ label: 'Check for updates…', click: () => { openSettings(); checkForUpdates(); } });
     if (updateReadyVersion) {
@@ -1168,13 +1204,14 @@ ipcMain.on('bar:resize', (_e, height) => {
 });
 ipcMain.on('bar:hide', () => barWin && barWin.hide());
 ipcMain.on('snip:new', () => startSnip('image'));
-ipcMain.on('snip:edit', (_e, id) => openEditor(id));
+ipcMain.on('snip:edit', (_e, id) => openLibrary(id));
 ipcMain.on('snip:remove', (_e, id) => removeSnip(id));
 ipcMain.on('settings:open', () => openSettings());
-ipcMain.on('video:play', (_e, id) => openPlayer(id));
+ipcMain.on('video:play', (_e, id) => openLibrary(id));
+ipcMain.on('library:open', () => openLibrary());
 
 ipcMain.handle('snip:copy', (_e, id) => {
-  const snip = snips.find((s) => s.id === id);
+  const snip = library.find((s) => s.id === id);
   if (!snip) return false;
   if (snip.kind === 'video') return copyFileToClipboard(snip.file);
   try {
@@ -1183,27 +1220,116 @@ ipcMain.handle('snip:copy', (_e, id) => {
   } catch { return false; }
 });
 
-ipcMain.handle('player:get-snip', (_e, id) => {
-  const snip = snips.find((s) => s.id === id && s.kind === 'video');
-  if (!snip || !fs.existsSync(snip.file)) return null;
-  return {
-    id: snip.id,
-    fileUrl: pathToFileURL(snip.file).href,
-    width: snip.width,
-    height: snip.height,
-    durationMs: snip.durationMs || 0,
-    createdAt: snip.createdAt,
+/* --- library window api --- */
+
+ipcMain.handle('library:list', () => {
+  // prune entries whose files were deleted outside the app
+  const alive = library.filter((it) => {
+    try { return fs.existsSync(it.file); } catch { return false; }
+  });
+  if (alive.length !== library.length) {
+    library = alive;
+    saveLibrary();
+    pushSnipsToBar();
+  }
+  // backfill thumbnails for items migrated from the pre-library store
+  let thumbed = false;
+  for (const it of library) {
+    if (!it.thumb && it.kind !== 'video') {
+      try {
+        const img = nativeImage.createFromPath(it.file);
+        if (!img.isEmpty()) { it.thumb = writeThumb(it.id, img); thumbed = true; }
+      } catch {}
+    }
+  }
+  if (thumbed) saveLibrary();
+  return library.map((it) => {
+    const t = it.thumb || it.poster || (it.kind !== 'video' ? it.file : null);
+    return {
+      id: it.id,
+      kind: it.kind || 'image',
+      width: it.width,
+      height: it.height,
+      durationMs: it.durationMs || 0,
+      createdAt: it.createdAt,
+      parentId: it.parentId || null,
+      fileName: path.basename(it.file),
+      thumbUrl: t && fs.existsSync(t) ? pathToFileURL(t).href : '',
+    };
+  });
+});
+
+ipcMain.handle('library:get-item', (_e, id) => {
+  const it = library.find((s) => s.id === id);
+  if (!it || !fs.existsSync(it.file)) return null;
+  const base = {
+    id: it.id,
+    kind: it.kind || 'image',
+    width: it.width,
+    height: it.height,
+    durationMs: it.durationMs || 0,
+    createdAt: it.createdAt,
+    parentId: it.parentId || null,
+    fileName: path.basename(it.file),
   };
+  if (it.kind === 'video') return { ...base, fileUrl: pathToFileURL(it.file).href };
+  // a variant with stored ops reopens as parent image + replayed annotations,
+  // so it stays fully editable; if the parent is gone, fall back to the
+  // baked-in pixels
+  if (it.ops && it.parentId) {
+    const parent = library.find((s) => s.id === it.parentId);
+    if (parent && parent.kind !== 'video' && fs.existsSync(parent.file)) {
+      return { ...base, dataUrl: nativeImage.createFromPath(parent.file).toDataURL(), ops: it.ops };
+    }
+  }
+  return { ...base, dataUrl: nativeImage.createFromPath(it.file).toDataURL(), ops: null };
+});
+
+// "save to library": the annotated result becomes a NEW item; the original is
+// never touched. Ops are stored so the variant can be re-edited later.
+ipcMain.handle('library:add-variant', (_e, payload) => {
+  const { parentId, dataUrl, ops } = payload || {};
+  const img = nativeImage.createFromDataURL(String(dataUrl || ''));
+  if (img.isEmpty()) return null;
+  const parent = library.find((s) => s.id === parentId && s.kind !== 'video');
+  const id = newId();
+  let file;
+  try {
+    const dir = resolveSaveDir();
+    file = path.join(dir, `${stampName(dir, 'snip-edit', 'png')}.png`);
+    fs.writeFileSync(file, img.toPNG());
+  } catch (err) {
+    console.error('failed to save variant:', err);
+    return null;
+  }
+  let keptOps = null;
+  try {
+    if (parent && Array.isArray(ops) && ops.length && JSON.stringify(ops).length < 500000) keptOps = ops;
+  } catch {}
+  const { width, height } = img.getSize();
+  library.unshift({
+    id, kind: 'image', file, thumb: writeThumb(id, img), width, height,
+    createdAt: Date.now(), parentId: parent ? parent.id : null, ops: keptOps,
+  });
+  saveLibrary();
+  pushSnipsToBar();
+  notifyLibraryChanged();
+  return id;
+});
+
+ipcMain.on('library:show-in-folder', (_e, id) => {
+  const it = library.find((s) => s.id === id);
+  if (it && fs.existsSync(it.file)) shell.showItemInFolder(it.file);
 });
 
 ipcMain.handle('video:save', async (e, id) => {
-  const snip = snips.find((s) => s.id === id && s.kind === 'video');
+  const snip = library.find((s) => s.id === id && s.kind === 'video');
   if (!snip || !fs.existsSync(snip.file)) return false;
   const ext = path.extname(snip.file).slice(1) || 'webm';
   const win = BrowserWindow.fromWebContents(e.sender);
   const { canceled, filePath } = await dialog.showSaveDialog(win, {
     title: 'Save recording',
-    defaultPath: path.join(app.getPath('videos'), `recording.${ext}`),
+    defaultPath: path.join(app.getPath('videos'), path.basename(snip.file)),
     filters: [{ name: `${ext.toUpperCase()} video`, extensions: [ext] }],
   });
   if (canceled || !filePath) return false;
@@ -1213,22 +1339,22 @@ ipcMain.handle('video:save', async (e, id) => {
   } catch { return false; }
 });
 
-ipcMain.on('video:show-in-folder', (_e, id) => {
-  const snip = snips.find((s) => s.id === id && s.kind === 'video');
-  if (snip && fs.existsSync(snip.file)) shell.showItemInFolder(snip.file);
-});
+/* --- storage folder --- */
 
-ipcMain.handle('editor:get-snip', (_e, id) => {
-  const snip = snips.find((s) => s.id === id);
-  if (!snip || !fs.existsSync(snip.file)) return null;
-  return {
-    id: snip.id,
-    width: snip.width,
-    height: snip.height,
-    createdAt: snip.createdAt,
-    dataUrl: nativeImage.createFromPath(snip.file).toDataURL(),
-  };
+ipcMain.handle('settings:pick-folder', async (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+    title: 'Choose where captures are stored',
+    defaultPath: resolveSaveDir(),
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (!canceled && filePaths && filePaths[0]) {
+    settings.saveDir = filePaths[0];
+    saveSettings();
+  }
+  return settings;
 });
+ipcMain.on('settings:open-folder', () => { shell.openPath(resolveSaveDir()); });
 
 ipcMain.handle('image:copy', (_e, dataUrl) => {
   try {
@@ -1326,10 +1452,13 @@ async function runSelfTest() {
     await sleep(800);
     await shoot(barWin, 'bar.png');
 
-    openEditor(snips[0].id);
-    const ed = editors.get(snips[0].id);
+    openLibrary(library[0].id);
+    const ed = libraryWin;
     await new Promise((res) => ed.webContents.once('did-finish-load', res));
-    await sleep(1000);
+    await sleep(1400); // sidebar list + selected image load
+    const sideCount = await ed.webContents.executeJavaScript(
+      `document.querySelectorAll('.side-item').length`);
+    console.log(`library sidebar lists ${sideCount} items (expect ${library.length})`);
     const zoomInfo = await ed.webContents.executeJavaScript(
       `({ label: document.getElementById('zoom-label').textContent,
           canvasCss: document.getElementById('canvas').style.width,
@@ -1379,7 +1508,7 @@ async function runSelfTest() {
     // overlay: synthetic drag, screenshot mid-drag, then complete the capture.
     // Falls back to a test-card "screen" when live capture is unavailable so
     // the selection/crop pipeline is still exercised end to end.
-    const before = snips.length;
+    const before = library.length;
     const t0 = Date.now();
     await startSnip();
     let shownAt = null;
@@ -1442,10 +1571,10 @@ async function runSelfTest() {
       await shoot(ov, 'overlay.png');
       send({ type: 'mouseUp', x: 840, y: 620, button: 'left', clickCount: 1 });
       await sleep(800);
-      const captured = snips.length === Math.min(MAX_SNIPS, before + 1) &&
-        snips[0].width > 0 && snips[0].height > 0;
+      const captured = library.length === before + 1 &&
+        library[0].width > 0 && library[0].height > 0;
       console.log(captured
-        ? `SELFTEST_OK capture=${snips[0].width}x${snips[0].height}`
+        ? `SELFTEST_OK capture=${library[0].width}x${library[0].height}`
         : 'SELFTEST_FAIL synthetic capture did not produce a snip');
       await sleep(300);
       await shoot(barWin, 'bar-after-capture.png');
@@ -1620,7 +1749,7 @@ async function runSelfTest() {
             await sleep(100);
             waitedStop += 100;
           }
-          const v = snips[0];
+          const v = library[0];
           if (!recording && v && v.kind === 'video' && fs.existsSync(v.file) && v.durationMs > 500) {
             const kb = Math.round(fs.statSync(v.file).size / 1024);
             console.log(`REC_OK ${v.width}x${v.height} ${v.durationMs}ms ${kb}KB`
@@ -1628,20 +1757,54 @@ async function runSelfTest() {
             await sleep(400);
             await shoot(barWin, 'bar-video.png');
 
-            // the built-in player should load the file and read its size
-            openPlayer(v.id);
-            const pw = players.get(v.id);
-            await new Promise((res) => pw.webContents.once('did-finish-load', res));
-            await sleep(1200);
-            const ps = await pw.webContents.executeJavaScript(
-              `({ w: document.getElementById('v').videoWidth,
-                  h: document.getElementById('v').videoHeight,
-                  err: document.getElementById('v').error && document.getElementById('v').error.message })`);
-            console.log(ps.w > 0
-              ? `PLAYER_OK video decodes at ${ps.w}x${ps.h}`
-              : `PLAYER_FAIL video element reports ${JSON.stringify(ps)}`);
-            await shoot(pw, 'player.png');
-            pw.close();
+            // library window: video playback pane + sidebar history
+            openLibrary(v.id);
+            const lw = libraryWin;
+            await new Promise((res) => lw.webContents.once('did-finish-load', res));
+            await sleep(1500);
+            const ls = await lw.webContents.executeJavaScript(
+              `({ count: document.querySelectorAll('.side-item').length,
+                  videoMode: document.body.classList.contains('mode-video'),
+                  vw: document.getElementById('vplayer').videoWidth })`);
+            console.log(ls.videoMode && ls.vw > 0 && ls.count >= 4
+              ? `LIBRARY_OK sidebar has ${ls.count} items, video decodes at ${ls.vw}px wide`
+              : `LIBRARY_FAIL ${JSON.stringify(ls)}`);
+            await shoot(lw, 'library-video.png');
+
+            // switch to an image, add an op, save it as a variant
+            const libBefore = library.length;
+            await lw.webContents.executeJavaScript(
+              `(async () => {
+                 const img = items.find((i) => i.kind === 'image');
+                 await selectItem(img.id, { force: true });
+               })()`);
+            await sleep(900);
+            await lw.webContents.executeJavaScript(
+              `(async () => {
+                 state.ops.push({ type: 'rect', color: '#ff5a4e', width: 4,
+                                  rect: { x: 12, y: 12, w: 140, h: 90 } });
+                 render();
+                 await saveVariant();
+               })()`);
+            await sleep(900);
+            const variant = library[0];
+            console.log(library.length === libBefore + 1 && variant.parentId
+              && Array.isArray(variant.ops) && variant.ops.length === 1
+              && fs.existsSync(variant.file)
+              ? `VARIANT_OK saved as ${path.basename(variant.file)} (parent + 1 op stored)`
+              : `VARIANT_FAIL len=${library.length}/${libBefore} newest=${JSON.stringify({ p: variant.parentId, ops: variant.ops && variant.ops.length })}`);
+
+            // reopening the variant must replay its ops over the parent image
+            await lw.webContents.executeJavaScript(
+              `selectItem(${JSON.stringify(variant.id)}, { force: true })`);
+            await sleep(900);
+            const reedit = await lw.webContents.executeJavaScript(
+              `({ ops: state.ops.length, w: document.getElementById('canvas').width })`);
+            console.log(reedit.ops === 1 && reedit.w > 0
+              ? `VARIANT_REEDIT_OK variant reopened with ${reedit.ops} editable op`
+              : `VARIANT_REEDIT_FAIL ${JSON.stringify(reedit)}`);
+            await shoot(lw, 'library-variant.png');
+            lw.close();
           } else {
             console.log(`REC_FAIL stuck=${!!recording}`
               + ` newest=${v ? `${v.kind}/${v.durationMs}ms` : 'none'}`);
@@ -1666,7 +1829,7 @@ async function runSelfTest() {
         stopRecording(false);
         t2 = 0;
         while (t2 < 8000 && recording) { await sleep(100); t2 += 100; }
-        const v2 = snips[0];
+        const v2 = library[0];
         console.log(!recording && v2 && v2.kind === 'video' && fs.existsSync(v2.file)
           ? `REC2_OK instant mode ${v2.width}x${v2.height} ${v2.durationMs}ms`
           : 'REC2_FAIL instant mode did not produce a video');
@@ -1675,6 +1838,18 @@ async function runSelfTest() {
         if (recording) stopRecording(true);
       }
       settings.armBeforeRecord = prevArm;
+    }
+
+    // --- keep-everything: nothing may be trimmed, the bar still shows 3 ---
+    {
+      const allOnDisk = library.every((it) => fs.existsSync(it.file));
+      console.log(library.length >= 6 && allOnDisk
+        ? `KEEP_ALL_OK library retains all ${library.length} captures on disk`
+        : `KEEP_ALL_FAIL count=${library.length} allOnDisk=${allOnDisk}`);
+      console.log(snipPayload().length <= MAX_SNIPS
+        ? `BAR_LIMIT_OK bar shows ${snipPayload().length} of ${library.length}`
+        : 'BAR_LIMIT_FAIL');
+      console.log(`library folder: ${resolveSaveDir()}`);
     }
 
     // the bar should fade away on its own ~10s after it appeared
@@ -1710,7 +1885,9 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     app.setAppUserModelId('no.cwb.snippit-good');
     loadSettings();
-    loadSnips();
+    // test runs must never write captures into the user's real library folder
+    if (SMOKE || SELFTEST) settings.saveDir = path.join(app.getPath('userData'), 'library');
+    loadLibrary();
     createBar();
     createTray();
     initDisplayMediaHandler();
@@ -1732,7 +1909,7 @@ if (!app.requestSingleInstanceLock()) {
         ? DEFAULT_SETTINGS.recordShortcut : '';
       refreshTray();
     }
-    if (snips.length) {
+    if (library.length) {
       // bar shows once content has loaded; size arrives via bar:resize
       barWin.webContents.once('did-finish-load', () => setTimeout(showBar, 80));
     }
