@@ -112,6 +112,23 @@ main {
 }
 .folder-actions { display: flex; gap: 8px; margin-top: 8px; }
 
+/* microphone device picker */
+.mic-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.mic-row label { color: var(--text-faint); font-weight: 600; flex: 0 0 auto; }
+.mic-row select {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 7px 9px;
+  font-family: inherit;
+  font-size: 12.5px;
+  outline: none;
+}
+.mic-row select:focus { border-color: var(--accent); }
+
 /* segmented pickers (default capture, audio quality) */
 .seg {
   display: flex;

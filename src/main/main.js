@@ -33,6 +33,7 @@ const DEFAULT_SETTINGS = {
   autoUpdate: true,
   recordAudio: true, // recordings START with system audio on (mutable from the HUD)
   recordMic: false,  // recordings START with the microphone on (toggleable from the HUD)
+  micDeviceId: '',   // chosen input device; '' = system default
   audioQuality: 'standard', // low | standard | high
   armBeforeRecord: true, // pick a region, adjust it, press Record — vs. record instantly
   saveDir: '', // where captures are written; resolved to Pictures\snippit-good when empty
@@ -811,6 +812,7 @@ function recInitPayload(rec) {
     fps: RECORD_FPS,
     audio: !!settings.recordAudio,
     mic: !!settings.recordMic,
+    micDeviceId: settings.micDeviceId || '',
     audioBitrate: AUDIO_BITRATES[settings.audioQuality] || AUDIO_BITRATES.standard,
     sourceId: rec.source.id,
   };
@@ -1573,6 +1575,19 @@ async function runSelfTest() {
     await new Promise((res) => settingsWin.webContents.once('did-finish-load', res));
     await sleep(700);
     await shoot(settingsWin, 'settings.png');
+    // the mic picker should list real devices (label reveal can take a moment)
+    let micOpts = { count: 0, labels: [] };
+    for (let i = 0; i < 10 && micOpts.count < 2; i++) {
+      await sleep(300);
+      micOpts = await settingsWin.webContents.executeJavaScript(
+        `({ count: document.getElementById('mic-device').options.length,
+            labels: [...document.getElementById('mic-device').options].map((o) => o.textContent) })`);
+    }
+    console.log(micOpts.count >= 2
+      ? `MIC_PICKER_OK ${micOpts.count - 1} device(s): ${micOpts.labels.slice(1).join(' | ').slice(0, 90)}`
+      : micOpts.count === 1
+        ? 'MIC_PICKER_EMPTY only "System default" (no mics visible here)'
+        : `MIC_PICKER_FAIL ${JSON.stringify(micOpts)}`);
     settingsWin.close();
 
     // overlay: synthetic drag, screenshot mid-drag, then complete the capture.

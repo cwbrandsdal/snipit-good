@@ -113,6 +113,7 @@ function paint() {
     const value = current[s.key] || s.def;
     s.el.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.v === value));
   }
+  syncMicSelect();
   document.getElementById('save-dir').textContent = current.saveDir || '…';
 }
 
@@ -128,6 +129,50 @@ async function apply(patch, statusTarget) {
 autoCopyBtn.addEventListener('click', () => apply({ autoCopy: !current.autoCopy }));
 recAudioBtn.addEventListener('click', () => apply({ recordAudio: current.recordAudio === false }, recField));
 recMicBtn.addEventListener('click', () => apply({ recordMic: !current.recordMic }, recField));
+
+/* --- microphone device picker --- */
+
+const micSelect = document.getElementById('mic-device');
+
+async function loadMicDevices() {
+  let inputs = [];
+  try {
+    inputs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
+    // labels stay hidden until the mic has been used once — a brief silent
+    // grab (immediately stopped) reveals the real device names
+    if (inputs.length && inputs.every((d) => !d.label)) {
+      try {
+        const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+        probe.getTracks().forEach((t) => t.stop());
+        inputs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
+      } catch {}
+    }
+  } catch {}
+  micSelect.replaceChildren();
+  const mk = (value, text) => {
+    const o = document.createElement('option');
+    o.value = value;
+    o.textContent = text;
+    return o;
+  };
+  micSelect.appendChild(mk('', 'System default'));
+  let n = 0;
+  for (const d of inputs) {
+    // skip Chromium's virtual duplicates of the default device
+    if (!d.deviceId || d.deviceId === 'default' || d.deviceId === 'communications') continue;
+    n++;
+    micSelect.appendChild(mk(d.deviceId, d.label || `Microphone ${n}`));
+  }
+  syncMicSelect();
+}
+
+function syncMicSelect() {
+  const wanted = current.micDeviceId || '';
+  micSelect.value = [...micSelect.options].some((o) => o.value === wanted) ? wanted : '';
+}
+
+micSelect.addEventListener('change', () => apply({ micDeviceId: micSelect.value }, recField));
+try { navigator.mediaDevices.addEventListener('devicechange', loadMicDevices); } catch {}
 armRecordBtn.addEventListener('click', () => apply({ armBeforeRecord: current.armBeforeRecord === false }, recField));
 for (const s of SEGS) {
   s.el.querySelectorAll('button').forEach((b) =>
@@ -191,4 +236,5 @@ document.getElementById('gh-link').addEventListener('click', (e) => {
   current = await window.snippit.getSettings();
   paint();
   paintUpdate(await window.snippit.getUpdateState());
+  loadMicDevices();
 })();

@@ -72,12 +72,18 @@
       <button class="switch" id="recaudio" role="switch" aria-checked="true"><span class="knob"></span></button>
     </section>
 
-    <section class="setting row">
-      <div class="setting-head">
-        <h2>Record microphone</h2>
-        <p>Recordings start with your microphone live. Off by default — you can still enable the mic from the recording bar at any time, even mid-recording.</p>
+    <section class="setting">
+      <div class="setting-row-head">
+        <div class="setting-head">
+          <h2>Record microphone</h2>
+          <p>Recordings start with your microphone live. Off by default — you can still enable the mic from the recording bar at any time, even mid-recording.</p>
+        </div>
+        <button class="switch" id="recmic" role="switch" aria-checked="false"><span class="knob"></span></button>
       </div>
-      <button class="switch" id="recmic" role="switch" aria-checked="false"><span class="knob"></span></button>
+      <div class="mic-row">
+        <label for="mic-device">Device</label>
+        <select id="mic-device"><option value="">System default</option></select>
+      </div>
     </section>
 
     <section class="setting row">

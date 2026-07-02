@@ -38,6 +38,7 @@ let audioDest = null;
 let sysTrack = null;
 let micStream = null;
 let micTrack = null;
+let micDeviceId = ''; // preferred input device from settings; '' = default
 let mixerLive = false; // an audio track is part of the recording
 
 function fmt(ms) {
@@ -91,7 +92,10 @@ async function enableMic() {
   if (micTrack) { micTrack.enabled = true; return true; }
   if (!audioCtx || !audioDest) return false;
   try {
-    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // non-exact deviceId: falls back to the default mic if the chosen one is gone
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: micDeviceId ? { deviceId: micDeviceId } : true,
+    });
     micTrack = micStream.getAudioTracks()[0] || null;
     if (!micTrack) throw new Error('no microphone track');
     audioCtx.createMediaStreamSource(micStream).connect(audioDest);
@@ -158,6 +162,7 @@ async function start(cfg) {
     state.micOn = !!cfg.mic;
     audioFlagsSet = true;
   }
+  micDeviceId = cfg.micDeviceId || '';
   media = await acquireStream(cfg.sourceId);
   if (dead) { releaseMedia(); return; }
 
