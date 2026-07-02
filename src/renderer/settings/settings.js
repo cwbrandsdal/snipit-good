@@ -1,36 +1,13 @@
 'use strict';
-const field = document.getElementById('shortcut-field');
-const statusEl = document.getElementById('shortcut-status');
-const resetBtn = document.getElementById('shortcut-reset');
 const autoCopyBtn = document.getElementById('autocopy');
+const recAudioBtn = document.getElementById('recaudio');
+const armRecordBtn = document.getElementById('armrecord');
 
 const DEFAULT_SHORTCUT = 'Ctrl+Shift+S';
-let current = { shortcut: DEFAULT_SHORTCUT, autoCopy: false };
-let recording = false;
-let statusTimer = null;
+const DEFAULT_RECORD_SHORTCUT = 'Ctrl+Alt+R';
+let current = { shortcut: DEFAULT_SHORTCUT, recordShortcut: DEFAULT_RECORD_SHORTCUT, autoCopy: false, recordAudio: true };
 
-function setStatus(text, cls) {
-  statusEl.textContent = text;
-  statusEl.className = `status ${cls || ''}`;
-  clearTimeout(statusTimer);
-  if (text) statusTimer = setTimeout(() => { statusEl.textContent = ''; statusEl.className = 'status'; }, 2600);
-}
-
-function paint() {
-  field.textContent = current.shortcut;
-  autoCopyBtn.setAttribute('aria-checked', String(!!current.autoCopy));
-  autoUpdateBtn.setAttribute('aria-checked', String(current.autoUpdate !== false));
-}
-
-async function apply(patch) {
-  const res = await window.snippit.setSettings(patch);
-  current = res.settings;
-  paint();
-  if (!res.ok) setStatus(res.error || 'Could not save', 'err');
-  else setStatus('Saved', 'ok');
-}
-
-/* --- shortcut recorder --- */
+/* --- shortcut recorders (one per field) --- */
 
 // e.code -> accelerator key name (layout-independent for letters/digits)
 function keyFromEvent(e) {
@@ -47,23 +24,58 @@ function keyFromEvent(e) {
   return map[c] || null;
 }
 
-function stopRecording() {
-  recording = false;
-  field.classList.remove('recording');
-  paint();
+const shortcutFields = [];
+let recordingField = null; // the field currently listening for keys
+
+function makeShortcutField({ fieldId, resetId, statusId, key, def }) {
+  const field = document.getElementById(fieldId);
+  const resetBtn = document.getElementById(resetId);
+  const statusEl = document.getElementById(statusId);
+  let statusTimer = null;
+
+  const entry = {
+    key,
+    field,
+    setStatus(text, cls) {
+      statusEl.textContent = text;
+      statusEl.className = `status ${cls || ''}`;
+      clearTimeout(statusTimer);
+      if (text) statusTimer = setTimeout(() => { statusEl.textContent = ''; statusEl.className = 'status'; }, 2600);
+    },
+    paint() { field.textContent = current[key] || 'Not set'; },
+    stop() {
+      if (recordingField === entry) recordingField = null;
+      field.classList.remove('recording');
+      entry.paint();
+    },
+  };
+
+  field.addEventListener('click', () => {
+    if (recordingField) recordingField.stop();
+    recordingField = entry;
+    field.classList.add('recording');
+    field.textContent = 'Press keys…';
+    field.focus();
+  });
+  resetBtn.addEventListener('click', () => apply({ [key]: def }, entry));
+
+  shortcutFields.push(entry);
+  return entry;
 }
 
-field.addEventListener('click', () => {
-  recording = true;
-  field.classList.add('recording');
-  field.textContent = 'Press keys…';
-  field.focus();
+const snipField = makeShortcutField({
+  fieldId: 'shortcut-field', resetId: 'shortcut-reset', statusId: 'shortcut-status',
+  key: 'shortcut', def: DEFAULT_SHORTCUT,
+});
+const recField = makeShortcutField({
+  fieldId: 'rec-shortcut-field', resetId: 'rec-shortcut-reset', statusId: 'rec-shortcut-status',
+  key: 'recordShortcut', def: DEFAULT_RECORD_SHORTCUT,
 });
 
 window.addEventListener('keydown', (e) => {
-  if (!recording) return;
+  if (!recordingField) return;
   e.preventDefault();
-  if (e.key === 'Escape') { stopRecording(); return; }
+  if (e.key === 'Escape') { recordingField.stop(); return; }
   const key = keyFromEvent(e);
   if (!key) return; // a bare modifier — keep waiting
   const mods = [];
@@ -73,17 +85,36 @@ window.addEventListener('keydown', (e) => {
   if (e.metaKey) mods.push('Super');
   const needsMods = !/^F\d{1,2}$/.test(key) && key !== 'PrintScreen';
   if (needsMods && mods.length === 0) {
-    field.textContent = 'Add a modifier…';
+    recordingField.field.textContent = 'Add a modifier…';
     return;
   }
-  stopRecording();
-  apply({ shortcut: [...mods, key].join('+') });
+  const target = recordingField;
+  target.stop();
+  apply({ [target.key]: [...mods, key].join('+') }, target);
 });
 
-window.addEventListener('blur', () => { if (recording) stopRecording(); });
+window.addEventListener('blur', () => { if (recordingField) recordingField.stop(); });
 
-resetBtn.addEventListener('click', () => apply({ shortcut: DEFAULT_SHORTCUT }));
+function paint() {
+  for (const f of shortcutFields) f.paint();
+  autoCopyBtn.setAttribute('aria-checked', String(!!current.autoCopy));
+  recAudioBtn.setAttribute('aria-checked', String(current.recordAudio !== false));
+  armRecordBtn.setAttribute('aria-checked', String(current.armBeforeRecord !== false));
+  autoUpdateBtn.setAttribute('aria-checked', String(current.autoUpdate !== false));
+}
+
+async function apply(patch, statusTarget) {
+  const res = await window.snippit.setSettings(patch);
+  current = res.settings;
+  paint();
+  const target = statusTarget || snipField;
+  if (!res.ok) target.setStatus(res.error || 'Could not save', 'err');
+  else target.setStatus('Saved', 'ok');
+}
+
 autoCopyBtn.addEventListener('click', () => apply({ autoCopy: !current.autoCopy }));
+recAudioBtn.addEventListener('click', () => apply({ recordAudio: current.recordAudio === false }, recField));
+armRecordBtn.addEventListener('click', () => apply({ armBeforeRecord: current.armBeforeRecord === false }, recField));
 
 /* --- updates --- */
 

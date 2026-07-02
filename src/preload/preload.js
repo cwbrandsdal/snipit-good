@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld('snippit', {
   onOverlayArm: (cb) => ipcRenderer.on('overlay:arm', (_e, p) => cb(p)),
   onOverlayImage: (cb) => ipcRenderer.on('overlay:image', (_e, p) => cb(p)),
   onOverlayReset: (cb) => ipcRenderer.on('overlay:reset', () => cb()),
+  onOverlayMode: (cb) => ipcRenderer.on('overlay:mode', (_e, m) => cb(m)),
+  setOverlayMode: (mode) => ipcRenderer.send('overlay:mode', mode),
   overlaySelect: (payload) => ipcRenderer.send('overlay:select', payload),
   overlayCancel: () => ipcRenderer.send('overlay:cancel'),
 
@@ -24,6 +26,30 @@ contextBridge.exposeInMainWorld('snippit', {
   getSnip: (id) => ipcRenderer.invoke('editor:get-snip', id),
   copyImage: (dataUrl) => ipcRenderer.invoke('image:copy', dataUrl),
   saveImage: (dataUrl, name) => ipcRenderer.invoke('image:save', { dataUrl, name }),
+
+  // recording region frame (armed: resizable/movable before recording starts)
+  onFrameSetup: (cb) => ipcRenderer.on('frame:setup', (_e, p) => cb(p)),
+  onFrameLock: (cb) => ipcRenderer.on('frame:lock', () => cb()),
+  frameSetIgnore: (ignore) => ipcRenderer.send('frame:set-ignore', ignore),
+  frameRect: (rect) => ipcRenderer.send('frame:rect', rect),
+
+  // recording HUD (control bar window doubles as the recorder)
+  onRecArm: (cb) => ipcRenderer.on('rec:arm', () => cb()),
+  onRecInit: (cb) => ipcRenderer.on('rec:init', (_e, p) => cb(p)),
+  onRecStop: (cb) => ipcRenderer.on('rec:stop', (_e, p) => cb(p)),
+  recRecord: () => ipcRenderer.send('rec:record'),
+  recStarted: (meta) => ipcRenderer.send('rec:started', meta),
+  recChunk: (chunk) => ipcRenderer.send('rec:chunk', chunk),
+  recPoster: (dataUrl) => ipcRenderer.send('rec:poster', dataUrl),
+  recStatus: (status) => ipcRenderer.send('rec:status', status),
+  recDone: (payload) => ipcRenderer.send('rec:done', payload),
+  recError: (message) => ipcRenderer.send('rec:error', message),
+
+  // video player
+  playVideo: (id) => ipcRenderer.send('video:play', id),
+  getVideoSnip: (id) => ipcRenderer.invoke('player:get-snip', id),
+  saveVideo: (id) => ipcRenderer.invoke('video:save', id),
+  showVideoInFolder: (id) => ipcRenderer.send('video:show-in-folder', id),
 
   // settings
   getSettings: () => ipcRenderer.invoke('settings:get'),

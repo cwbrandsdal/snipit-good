@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; media-src 'self' blob:; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com" />
+  <title>snippit-good — recording</title>
+  <link rel="stylesheet" href="hud.css" />
+</head>
+<body data-status="starting">
+  <!-- hidden capture pipeline: screen stream -> video -> cropped canvas -> MediaRecorder -->
+  <video id="feed" muted playsinline hidden></video>
+  <canvas id="cv" hidden></canvas>
+
+  <div id="hud">
+    <span id="dot"></span>
+    <span id="time">…</span>
+    <span class="flex"></span>
+    <button id="btn-record" title="Start recording"><span class="rdot"></span><span>Record</span></button>
+    <button id="btn-pause" class="hud-btn" title="Pause">
+      <svg id="ic-pause" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h3.6v14H7zM13.4 5H17v14h-3.6z"/></svg>
+      <svg id="ic-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v13.72L19 12z"/></svg>
+    </button>
+    <button id="btn-stop" title="Stop and save"><span class="sq"></span><span>Stop</span></button>
+    <button id="btn-cancel" class="hud-btn" title="Discard recording">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg>
+    </button>
+  </div>
+  <script src="hud.js"></script>
+</body>
+</html>

@@ -18,7 +18,18 @@
   <div id="hint">
     <span class="brand">snippit<span class="dot">-</span>good</span>
     <span class="sep"></span>
-    <span>Drag to capture</span>
+    <div id="mode-switch" title="Tab to switch">
+      <button id="mode-image" class="mode-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h2l2-3h10l2 3h2v11H3z"/><circle cx="12" cy="13" r="3.4"/></svg>
+        Snip
+      </button>
+      <button id="mode-video" class="mode-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="13" height="12" rx="2"/><path d="M15 10.5 22 7v10l-7-3.5"/></svg>
+        Record
+      </button>
+    </div>
+    <span class="sep"></span>
+    <span id="hint-text">Drag to capture</span>
     <kbd>Esc</kbd>
     <span class="dim">to cancel</span>
   </div>

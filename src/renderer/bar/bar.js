@@ -61,7 +61,13 @@ const ICONS = {
   edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
   copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
   del: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6"/></svg>',
+  play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v13.72L19 12z"/></svg>',
 };
+
+function fmtDuration(ms) {
+  const s = Math.max(1, Math.round(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
 
 function showChip(text) {
   chipText.textContent = text;
@@ -80,21 +86,36 @@ function render({ snips, shortcut, pinBar, event }) {
   thumbsEl.replaceChildren();
 
   snips.forEach((snip, i) => {
+    const isVideo = snip.kind === 'video';
     const card = document.createElement('div');
     card.className = 'thumb';
     if (i === 0) card.classList.add('newest');
+    if (isVideo) card.classList.add('video');
     if (!knownIds.has(snip.id)) card.classList.add('enter');
-    card.title = 'Open in editor';
+    card.title = isVideo ? 'Play recording' : 'Open in editor';
 
-    const img = document.createElement('img');
-    img.src = snip.thumb;
-    img.draggable = false;
-    card.appendChild(img);
+    if (snip.thumb) {
+      const img = document.createElement('img');
+      img.src = snip.thumb;
+      img.draggable = false;
+      card.appendChild(img);
+    }
 
     const meta = document.createElement('span');
     meta.className = 'meta';
     meta.textContent = `${snip.width} × ${snip.height}`;
     card.appendChild(meta);
+
+    if (isVideo) {
+      const glyph = document.createElement('span');
+      glyph.className = 'play-glyph';
+      glyph.innerHTML = ICONS.play;
+      card.appendChild(glyph);
+      const dur = document.createElement('span');
+      dur.className = 'dur';
+      dur.textContent = fmtDuration(snip.durationMs || 0);
+      card.appendChild(dur);
+    }
 
     const actions = document.createElement('div');
     actions.className = 'actions';
@@ -106,14 +127,17 @@ function render({ snips, shortcut, pinBar, event }) {
       b.addEventListener('click', (e) => { e.stopPropagation(); fn(); });
       return b;
     };
-    actions.appendChild(mkBtn('edit', 'Edit', '', () => window.snippit.editSnip(snip.id)));
-    actions.appendChild(mkBtn('copy', 'Copy to clipboard', '', async () => {
+    const open = () => (isVideo ? window.snippit.playVideo(snip.id) : window.snippit.editSnip(snip.id));
+    actions.appendChild(isVideo
+      ? mkBtn('play', 'Play', '', open)
+      : mkBtn('edit', 'Edit', '', open));
+    actions.appendChild(mkBtn('copy', isVideo ? 'Copy file to clipboard' : 'Copy to clipboard', '', async () => {
       if (await window.snippit.copySnip(snip.id)) showChip('Copied');
     }));
     actions.appendChild(mkBtn('del', 'Remove from recent snips', 'del', () => window.snippit.removeSnip(snip.id)));
     card.appendChild(actions);
 
-    card.addEventListener('click', () => window.snippit.editSnip(snip.id));
+    card.addEventListener('click', open);
     thumbsEl.appendChild(card);
   });
 

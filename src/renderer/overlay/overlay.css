@@ -32,6 +32,10 @@ body:not(.ready) #sel {
   background: rgba(8, 10, 14, 0.46);
 }
 
+/* record mode swaps the selection accent to red */
+body { --sel-accent: var(--accent); }
+body[data-mode='video'] { --sel-accent: #ff5a4e; }
+
 /* selection: the huge box-shadow dims everything *outside* the rectangle,
    leaving the live image visible inside */
 #sel {
@@ -46,10 +50,10 @@ body:not(.ready) #sel {
   position: absolute;
   inset: -1.5px;
   background:
-    repeating-linear-gradient(90deg, var(--accent) 0 6px, transparent 6px 12px) top left / 100% 1.5px no-repeat,
-    repeating-linear-gradient(90deg, var(--accent) 0 6px, transparent 6px 12px) bottom left / 100% 1.5px no-repeat,
-    repeating-linear-gradient(0deg, var(--accent) 0 6px, transparent 6px 12px) top left / 1.5px 100% no-repeat,
-    repeating-linear-gradient(0deg, var(--accent) 0 6px, transparent 6px 12px) top right / 1.5px 100% no-repeat;
+    repeating-linear-gradient(90deg, var(--sel-accent) 0 6px, transparent 6px 12px) top left / 100% 1.5px no-repeat,
+    repeating-linear-gradient(90deg, var(--sel-accent) 0 6px, transparent 6px 12px) bottom left / 100% 1.5px no-repeat,
+    repeating-linear-gradient(0deg, var(--sel-accent) 0 6px, transparent 6px 12px) top left / 1.5px 100% no-repeat,
+    repeating-linear-gradient(0deg, var(--sel-accent) 0 6px, transparent 6px 12px) top right / 1.5px 100% no-repeat;
   animation: ants 0.6s linear infinite;
   pointer-events: none;
 }
@@ -105,10 +109,36 @@ body:not(.ready) #sel {
   animation: hint-in 0.25s ease;
   transition: opacity 0.3s ease;
 }
-#hint.gone { opacity: 0; }
+#hint.gone { opacity: 0; pointer-events: none; }
 #hint .brand { font-size: 14px; }
 #hint .sep { width: 1px; height: 14px; background: var(--line-strong); }
 #hint .dim { color: var(--text-dim); }
+
+/* snip / record mode switch */
+#mode-switch {
+  display: flex;
+  gap: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px;
+}
+.mode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.mode-btn svg { width: 13px; height: 13px; }
+.mode-btn:hover { color: var(--text); }
+#mode-image.active { background: var(--accent); color: var(--accent-ink); }
+#mode-video.active { background: #ff5a4e; color: #fff; }
 #hint kbd {
   font-family: inherit;
   font-size: 11px;

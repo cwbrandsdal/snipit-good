@@ -1,9 +1,11 @@
 'use strict';
 const path = require('node:path');
 const fs = require('node:fs');
+const { pathToFileURL } = require('node:url');
+const { spawn } = require('node:child_process');
 const {
   app, BrowserWindow, globalShortcut, screen, desktopCapturer,
-  clipboard, nativeImage, Tray, Menu, ipcMain, dialog, shell,
+  clipboard, nativeImage, Tray, Menu, ipcMain, dialog, shell, session,
 } = require('electron');
 
 const gdi = require('./gdi-capture');
@@ -14,21 +16,33 @@ const SELFTEST = process.argv.includes('--selftest');
 const MAX_SNIPS = 3;
 const BAR_WIDTH = 196;
 const BAR_MARGIN = 14;
+const RECORD_FPS = 30;
+const MAX_RECORD_MS = 30 * 60 * 1000; // hard cap so a forgotten recording can't fill the disk
 
 const PRELOAD = path.join(__dirname, '..', 'preload', 'preload.js');
 const renderer = (p) => path.join(__dirname, '..', 'renderer', p);
 const asset = (p) => path.join(__dirname, '..', '..', 'assets', p);
 
-const DEFAULT_SETTINGS = { shortcut: 'Ctrl+Shift+S', autoCopy: true, pinBar: false, autoUpdate: true };
+const DEFAULT_SETTINGS = {
+  shortcut: 'Ctrl+Shift+S',
+  recordShortcut: 'Ctrl+Alt+R',
+  autoCopy: true,
+  pinBar: false,
+  autoUpdate: true,
+  recordAudio: true,
+  armBeforeRecord: true, // pick a region, adjust it, press Record — vs. record instantly
+};
 
 let settings = { ...DEFAULT_SETTINGS };
-let snips = []; // { id, file, width, height, createdAt }
+let snips = []; // { id, kind: 'image'|'video', file, poster?, width, height, durationMs?, createdAt }
 let tray = null;
 let barWin = null;
 let settingsWin = null;
 let overlays = []; // { win, display, image }
 let editors = new Map(); // snip id -> BrowserWindow
+let players = new Map(); // video snip id -> BrowserWindow
 let capturing = false;
+let snipMode = 'image'; // what a finished overlay drag does: 'image' | 'video'
 let quitting = false;
 
 const snipsDir = () => path.join(app.getPath('userData'), 'snips');
@@ -101,10 +115,21 @@ function snipPayload() {
   return snips.map((s) => {
     let thumb = '';
     try {
-      const img = nativeImage.createFromPath(s.file);
-      thumb = img.resize({ width: 360 }).toDataURL();
+      const src = s.kind === 'video' ? s.poster : s.file;
+      if (src) {
+        const img = nativeImage.createFromPath(src);
+        if (!img.isEmpty()) thumb = img.resize({ width: 360 }).toDataURL();
+      }
     } catch {}
-    return { id: s.id, width: s.width, height: s.height, createdAt: s.createdAt, thumb };
+    return {
+      id: s.id,
+      kind: s.kind || 'image',
+      width: s.width,
+      height: s.height,
+      durationMs: s.durationMs || 0,
+      createdAt: s.createdAt,
+      thumb,
+    };
   });
 }
 
@@ -290,7 +315,7 @@ function armOverlay(rec, after) {
       win.setBounds(db);
       win.setResizable(false);
     }
-    win.webContents.send('overlay:arm', { displayId: display.id });
+    win.webContents.send('overlay:arm', { displayId: display.id, mode: snipMode });
     win.show();
     win.focus();
     if (after) after();
@@ -306,9 +331,10 @@ function sendOverlayImage(rec) {
   });
 }
 
-async function startSnip() {
-  if (capturing) return;
+async function startSnip(mode = 'image') {
+  if (capturing || recording) return;
   capturing = true;
+  snipMode = mode === 'video' ? 'video' : 'image';
   const session = ++captureSession;
   pendingSelection = null;
   try {
@@ -375,7 +401,7 @@ function presentOverlays(captures) {
   globalShortcut.register('Escape', () => cancelSnip());
 }
 
-function hideOverlays() {
+function hideOverlays(opts = {}) {
   globalShortcut.unregister('Escape');
   for (const o of overlays) {
     if (o.win && !o.win.isDestroyed()) {
@@ -385,7 +411,15 @@ function hideOverlays() {
   }
   overlays = [];
   capturing = false;
-  showBar();
+  if (!opts.skipBar) showBar();
+}
+
+// the user changed snip/record mode on one overlay — sync every display
+function setSnipMode(mode) {
+  snipMode = mode === 'video' ? 'video' : 'image';
+  for (const o of overlays) {
+    if (o.win && !o.win.isDestroyed()) o.win.webContents.send('overlay:mode', snipMode);
+  }
 }
 
 function cancelSnip() {
@@ -423,6 +457,14 @@ function finalizeCapture(displayId, rect) {
   }
 }
 
+// drop entries beyond MAX_SNIPS and delete their files from disk
+function trimSnips() {
+  for (const old of snips.splice(MAX_SNIPS)) {
+    try { fs.unlinkSync(old.file); } catch {}
+    if (old.poster) { try { fs.unlinkSync(old.poster); } catch {} }
+  }
+}
+
 function addSnip(image) {
   fs.mkdirSync(snipsDir(), { recursive: true });
   const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -432,10 +474,8 @@ function addSnip(image) {
     return;
   }
   const { width, height } = image.getSize();
-  snips.unshift({ id, file, width, height, createdAt: Date.now() });
-  for (const old of snips.splice(MAX_SNIPS)) {
-    try { fs.unlinkSync(old.file); } catch {}
-  }
+  snips.unshift({ id, kind: 'image', file, width, height, createdAt: Date.now() });
+  trimSnips();
   saveSnipsMeta();
 
   let event = { type: 'captured', id };
@@ -451,9 +491,457 @@ function removeSnip(id) {
   const idx = snips.findIndex((s) => s.id === id);
   if (idx === -1) return;
   try { fs.unlinkSync(snips[idx].file); } catch {}
+  if (snips[idx].poster) { try { fs.unlinkSync(snips[idx].poster); } catch {} }
+  const win = players.get(id) || editors.get(id);
+  if (win && !win.isDestroyed()) win.close();
   snips.splice(idx, 1);
   saveSnipsMeta();
   pushSnipsToBar();
+}
+
+/* ---------------- screen recording ---------------- */
+/* Record mode reuses the snip overlay for region selection, then records that
+   region: a hidden <video> of the display's stream is cropped through a canvas
+   into a MediaRecorder living in the control-bar window (see record/hud.js).
+   Two always-on-top HUD windows appear while recording — a click-through red
+   frame sized just OUTSIDE the region (so it can't leak into the video even
+   where content protection is ignored) and the control bar. */
+
+const REC_FRAME_PAD = 3; // red border thickness; sits outside the recorded region
+const REC_BAR = { width: 322, height: 52, gap: 10 };
+
+let recording = null;
+// { id, display, rect, source, frameWin, barWin, file, poster, stream, meta,
+//   status: 'armed'|'starting'|'recording'|'paused'|'stopping', startedAt,
+//   finalizing, safetyTimer, autoStopTimer }
+// 'armed': region picked but not recording yet — the frame is adjustable and
+// the HUD shows a Record button (settings.armBeforeRecord)
+
+// getDisplayMedia from the recorder window resolves to the screen we picked;
+// anything else is denied
+function initDisplayMediaHandler() {
+  session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
+    const rec = recording;
+    let allowed = false;
+    try {
+      allowed = !!(rec && rec.source && rec.barWin && !rec.barWin.isDestroyed()
+        && request.frame === rec.barWin.webContents.mainFrame);
+    } catch { allowed = false; }
+    try {
+      if (!allowed) callback(null);
+      else if (settings.recordAudio && request.audioRequested) callback({ video: rec.source, audio: 'loopback' });
+      else callback({ video: rec.source });
+    } catch (err) {
+      console.error('display media handler:', err.message);
+    }
+  });
+}
+
+async function findScreenSource(display) {
+  const displays = screen.getAllDisplays();
+  const idx = Math.max(0, displays.findIndex((d) => d.id === display.id));
+  const sources = await desktopCapturer.getSources({
+    types: ['screen'],
+    thumbnailSize: { width: 0, height: 0 },
+  });
+  if (!sources.length) throw new Error('no screens available to record');
+  // display_id can be empty on some machines — fall back to matching by index
+  return sources.find((s) => s.display_id === String(display.id)) || sources[idx] || sources[0];
+}
+
+
+// control bar goes under the region, above it when there's no room, and as a
+// last resort inside its bottom edge
+function recBarBounds(display, rect) {
+  const wa = display.workArea;
+  const { width: w, height: h, gap } = REC_BAR;
+  let x = display.bounds.x + rect.x + rect.w / 2 - w / 2;
+  x = Math.max(wa.x + 8, Math.min(x, wa.x + wa.width - w - 8));
+  let y = display.bounds.y + rect.y + rect.h + REC_FRAME_PAD + gap;
+  if (y + h > wa.y + wa.height - 8) {
+    y = display.bounds.y + rect.y - REC_FRAME_PAD - gap - h;
+    if (y < wa.y + 8) y = display.bounds.y + rect.y + rect.h - h - 14;
+  }
+  return { x: Math.round(x), y: Math.round(y), width: w, height: h };
+}
+
+function makeHudWindow(bounds, opts = {}) {
+  const win = new BrowserWindow({
+    ...bounds,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    resizable: false,
+    movable: !!opts.movable,
+    minimizable: false,
+    maximizable: false,
+    focusable: false, // never steal focus from the app being recorded
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    hasShadow: false,
+    show: false,
+    webPreferences: opts.preload
+      ? { preload: PRELOAD, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false }
+      : { contextIsolation: true, nodeIntegration: false },
+  });
+  win.setAlwaysOnTop(true, 'screen-saver');
+  win.setContentProtection(true); // keep the HUD out of the recording where the OS honours it
+  return win;
+}
+
+function finalizeRecordSelection(displayId, rect) {
+  const rec = overlays.find((o) => o.display.id === displayId);
+  const display = rec ? rec.display
+    : screen.getAllDisplays().find((d) => d.id === displayId) || screen.getPrimaryDisplay();
+  pendingSelection = null;
+  hideOverlays({ skipBar: true }); // popping the bar under a starting recording would be noise
+  startRecording(display, rect);
+}
+
+async function startRecording(display, rect) {
+  if (recording || capturing) return;
+  rect = {
+    x: Math.max(0, Math.round(rect.x)),
+    y: Math.max(0, Math.round(rect.y)),
+    w: Math.round(rect.w),
+    h: Math.round(rect.h),
+  };
+  rect.w = Math.min(rect.w, display.bounds.width - rect.x);
+  rect.h = Math.min(rect.h, display.bounds.height - rect.y);
+  if (rect.w < 8 || rect.h < 8) { showBar(); return; }
+
+  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  fs.mkdirSync(snipsDir(), { recursive: true });
+  recording = {
+    id, display, rect,
+    source: null, frameWin: null, barWin: null,
+    file: null, poster: path.join(snipsDir(), `rec-${id}.jpg`),
+    stream: null, meta: null, status: 'starting',
+    startedAt: 0, finalizing: false, safetyTimer: null, autoStopTimer: null,
+  };
+  refreshTray();
+  try {
+    recording.source = await findScreenSource(display);
+  } catch (err) {
+    failRecording(`Could not find a screen to record (${err.message}).`);
+    return;
+  }
+  if (!recording || recording.id !== id) return; // cancelled while looking up the source
+
+  const armed = !!settings.armBeforeRecord;
+  recording.status = armed ? 'armed' : 'starting';
+  refreshTray();
+
+  // the frame covers the whole display: armed mode needs the full surface to
+  // host resize handles anywhere while staying click-through in between
+  const frameWin = makeHudWindow({ ...display.bounds }, { preload: true });
+  frameWin.setIgnoreMouseEvents(true, armed ? { forward: true } : undefined);
+  frameWin.loadFile(renderer('record/frame.html'));
+  frameWin.webContents.once('did-finish-load', () => {
+    if (frameWin.isDestroyed() || !recording || recording.frameWin !== frameWin) return;
+    frameWin.webContents.send('frame:setup', { rect: recording.rect, locked: !armed });
+    frameWin.showInactive();
+  });
+
+  const barWin = makeHudWindow(recBarBounds(display, rect), { movable: true, preload: true });
+  barWin.loadFile(renderer('record/hud.html'));
+  barWin.webContents.once('did-finish-load', () => {
+    if (barWin.isDestroyed() || !recording || recording.barWin !== barWin) return;
+    barWin.showInactive();
+    barWin.moveTop(); // above the full-display frame window
+    if (armed) barWin.webContents.send('rec:arm');
+    else barWin.webContents.send('rec:init', recInitPayload(recording));
+  });
+  // recorder window died mid-recording — keep whatever already reached the disk
+  barWin.on('closed', () => {
+    if (recording && recording.barWin === barWin && !recording.finalizing) {
+      finalizeRecording({
+        durationMs: recording.startedAt ? Date.now() - recording.startedAt : 0,
+        discard: !recording.startedAt, // nothing was ever written — no error balloon
+      });
+    }
+  });
+  barWin.webContents.on('render-process-gone', () => {
+    try { barWin.destroy(); } catch {}
+  });
+
+  recording.frameWin = frameWin;
+  recording.barWin = barWin;
+}
+
+function recInitPayload(rec) {
+  return {
+    rect: rec.rect,
+    displayBounds: rec.display.bounds,
+    fps: RECORD_FPS,
+    audio: !!settings.recordAudio,
+    sourceId: rec.source.id,
+  };
+}
+
+// armed -> actually recording: lock the frame and spin up the recorder
+function beginArmedRecording() {
+  const rec = recording;
+  if (!rec || rec.finalizing || rec.status !== 'armed') return;
+  if (!rec.barWin || rec.barWin.isDestroyed()) { stopRecording(true); return; }
+  rec.status = 'starting';
+  refreshTray();
+  if (rec.frameWin && !rec.frameWin.isDestroyed()) {
+    rec.frameWin.setIgnoreMouseEvents(true);
+    rec.frameWin.webContents.send('frame:lock');
+  }
+  rec.barWin.webContents.send('rec:init', recInitPayload(rec));
+}
+
+function cleanupRecordingWindows(rec) {
+  for (const w of [rec.frameWin, rec.barWin]) {
+    if (w && !w.isDestroyed()) { try { w.destroy(); } catch {} }
+  }
+}
+
+function deleteRecordingFiles(rec) {
+  for (const f of [rec.file, rec.poster]) {
+    if (f) { try { fs.unlinkSync(f); } catch {} }
+  }
+}
+
+function notifyRecordingProblem(title, content) {
+  console.error(`${title}: ${content}`);
+  try { tray.displayBalloon({ title, content, iconType: 'error' }); } catch {}
+}
+
+function failRecording(message) {
+  const rec = recording;
+  if (!rec || rec.finalizing) return;
+  rec.finalizing = true;
+  recording = null;
+  clearTimeout(rec.safetyTimer);
+  clearTimeout(rec.autoStopTimer);
+  cleanupRecordingWindows(rec);
+  if (rec.stream) { try { rec.stream.destroy(); } catch {} }
+  deleteRecordingFiles(rec);
+  refreshTray();
+  notifyRecordingProblem('Recording failed', message);
+  showBar();
+}
+
+function stopRecording(discard = false) {
+  const rec = recording;
+  if (!rec || rec.finalizing || rec.status === 'stopping') return;
+  if (rec.status === 'starting' || rec.status === 'armed') {
+    // nothing has been recorded yet (the stream only opens once the recorder
+    // reports rec:started) — just abandon the attempt
+    rec.finalizing = true;
+    recording = null;
+    cleanupRecordingWindows(rec);
+    deleteRecordingFiles(rec);
+    refreshTray();
+    showBar();
+    return;
+  }
+  rec.status = 'stopping';
+  refreshTray();
+  if (rec.barWin && !rec.barWin.isDestroyed()) {
+    rec.barWin.webContents.send('rec:stop', { discard });
+    // if the recorder never answers, salvage what's on disk
+    rec.safetyTimer = setTimeout(() => {
+      if (recording === rec && !rec.finalizing) {
+        finalizeRecording({ durationMs: rec.startedAt ? Date.now() - rec.startedAt : 0, discard });
+      }
+    }, 5000);
+  } else {
+    finalizeRecording({ durationMs: rec.startedAt ? Date.now() - rec.startedAt : 0, discard });
+  }
+}
+
+async function finalizeRecording({ durationMs = 0, discard = false, videoFrames = -1 } = {}) {
+  const rec = recording;
+  if (!rec || rec.finalizing) return;
+  rec.finalizing = true;
+  recording = null;
+  clearTimeout(rec.safetyTimer);
+  clearTimeout(rec.autoStopTimer);
+  cleanupRecordingWindows(rec);
+  refreshTray();
+  if (rec.stream) {
+    await new Promise((resolve) => { try { rec.stream.end(resolve); } catch { resolve(); } });
+  }
+  let fileOk = false;
+  try { fileOk = !!rec.file && fs.statSync(rec.file).size > 1024; } catch {}
+  if (discard || !fileOk) {
+    deleteRecordingFiles(rec);
+    if (!discard) notifyRecordingProblem('Recording failed', 'No video data was captured.');
+    showBar();
+    if (quitting) app.quit();
+    return;
+  }
+  if (videoFrames === 0) {
+    // stream opened but never delivered frames (broken capture API) — the file
+    // is valid, just black; tell the user instead of silently shipping it
+    notifyRecordingProblem('Recording may be blank', 'The screen stream delivered no frames on this machine.');
+  }
+  addVideoSnip(rec, Math.max(0, Math.round(durationMs)));
+  if (quitting) app.quit();
+}
+
+function addVideoSnip(rec, durationMs) {
+  const meta = rec.meta || {};
+  const poster = fs.existsSync(rec.poster) ? rec.poster : null;
+  snips.unshift({
+    id: rec.id,
+    kind: 'video',
+    file: rec.file,
+    poster,
+    width: meta.width || rec.rect.w,
+    height: meta.height || rec.rect.h,
+    durationMs,
+    createdAt: Date.now(),
+  });
+  trimSnips();
+  saveSnipsMeta();
+  let event = { type: 'captured', id: rec.id };
+  if (settings.autoCopy) {
+    copyFileToClipboard(rec.file);
+    event = { type: 'captured-copied', id: rec.id };
+  }
+  pushSnipsToBar(event);
+  showBar();
+}
+
+/* a video can't go on the clipboard as pixels — copy it as a *file* drop list
+   (CF_HDROP), which pastes into Explorer, Teams, Slack, mail, … PowerShell 5.1's
+   Set-Clipboard does that natively. */
+function copyFileToClipboard(file) {
+  return new Promise((resolve) => {
+    try {
+      const script = `Set-Clipboard -LiteralPath '${file.replace(/'/g, "''")}'`;
+      const ps = spawn('powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
+        { stdio: 'ignore', windowsHide: true });
+      ps.on('exit', (code) => resolve(code === 0));
+      ps.on('error', () => resolve(false));
+    } catch { resolve(false); }
+  });
+}
+
+/* recorder window -> main */
+
+const fromRecorder = (e) => !!(recording && recording.barWin
+  && !recording.barWin.isDestroyed() && e.sender === recording.barWin.webContents);
+
+ipcMain.on('rec:started', (e, meta) => {
+  if (!fromRecorder(e)) return;
+  const rec = recording;
+  rec.meta = meta || {};
+  const ext = rec.meta.ext === 'mp4' ? 'mp4' : 'webm';
+  rec.file = path.join(snipsDir(), `rec-${rec.id}.${ext}`);
+  try {
+    rec.stream = fs.createWriteStream(rec.file);
+  } catch (err) {
+    failRecording(`Could not write the video file (${err.message}).`);
+    return;
+  }
+  rec.stream.on('error', (err) => failRecording(`Could not write the video file (${err.message}).`));
+  rec.status = 'recording';
+  rec.startedAt = Date.now();
+  rec.autoStopTimer = setTimeout(() => stopRecording(false), MAX_RECORD_MS);
+  refreshTray();
+});
+
+ipcMain.on('rec:chunk', (e, chunk) => {
+  if (!fromRecorder(e)) return;
+  const rec = recording;
+  if (rec.stream && !rec.stream.destroyed) {
+    try { rec.stream.write(Buffer.from(chunk)); } catch {}
+  }
+});
+
+ipcMain.on('rec:poster', (e, dataUrl) => {
+  if (!fromRecorder(e)) return;
+  try {
+    const b64 = String(dataUrl).split(',')[1] || '';
+    if (b64) fs.writeFileSync(recording.poster, Buffer.from(b64, 'base64'));
+  } catch {}
+});
+
+ipcMain.on('rec:status', (e, status) => {
+  if (!fromRecorder(e)) return;
+  if (status === 'paused' || status === 'recording') {
+    recording.status = status;
+    refreshTray();
+  }
+});
+
+ipcMain.on('rec:done', (e, payload) => {
+  if (!fromRecorder(e)) return;
+  finalizeRecording(payload || {});
+});
+
+ipcMain.on('rec:error', (e, message) => {
+  if (!fromRecorder(e)) return;
+  failRecording(String(message || 'Unknown recorder error.'));
+});
+
+ipcMain.on('rec:record', (e) => {
+  if (!fromRecorder(e)) return;
+  beginArmedRecording();
+});
+
+/* region frame window -> main (armed adjustments) */
+
+const fromFrame = (e) => !!(recording && recording.frameWin
+  && !recording.frameWin.isDestroyed() && e.sender === recording.frameWin.webContents);
+
+ipcMain.on('frame:set-ignore', (e, ignore) => {
+  if (!fromFrame(e) || recording.status !== 'armed') return;
+  if (ignore) recording.frameWin.setIgnoreMouseEvents(true, { forward: true });
+  else recording.frameWin.setIgnoreMouseEvents(false);
+});
+
+ipcMain.on('frame:rect', (e, r) => {
+  if (!fromFrame(e) || recording.status !== 'armed' || !r) return;
+  const b = recording.display.bounds;
+  const rect = {
+    x: Math.max(0, Math.min(Math.round(r.x) || 0, b.width - 8)),
+    y: Math.max(0, Math.min(Math.round(r.y) || 0, b.height - 8)),
+    w: Math.max(8, Math.round(r.w) || 0),
+    h: Math.max(8, Math.round(r.h) || 0),
+  };
+  rect.w = Math.min(rect.w, b.width - rect.x);
+  rect.h = Math.min(rect.h, b.height - rect.y);
+  recording.rect = rect;
+  if (recording.barWin && !recording.barWin.isDestroyed()) {
+    recording.barWin.setBounds(recBarBounds(recording.display, rect));
+  }
+});
+
+/* ---------------- video player ---------------- */
+
+function openPlayer(id) {
+  const snip = snips.find((s) => s.id === id && s.kind === 'video');
+  if (!snip) return;
+  const existing = players.get(id);
+  if (existing && !existing.isDestroyed()) {
+    existing.show();
+    existing.focus();
+    return;
+  }
+  const win = new BrowserWindow({
+    width: 980,
+    height: 700,
+    minWidth: 560,
+    minHeight: 420,
+    backgroundColor: '#15161b',
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#15161b', symbolColor: '#a7adba', height: 42 },
+    icon: asset('icon.png'),
+    show: false,
+    webPreferences: { preload: PRELOAD, contextIsolation: true, nodeIntegration: false },
+  });
+  win.loadFile(renderer('player/player.html'), { query: { id } });
+  win.once('ready-to-show', () => win.show());
+  win.on('closed', () => players.delete(id));
+  players.set(id, win);
 }
 
 /* ---------------- editor ---------------- */
@@ -461,6 +949,7 @@ function removeSnip(id) {
 function openEditor(id) {
   const snip = snips.find((s) => s.id === id);
   if (!snip) return;
+  if (snip.kind === 'video') { openPlayer(id); return; }
   const existing = editors.get(id);
   if (existing && !existing.isDestroyed()) {
     existing.show();
@@ -495,7 +984,7 @@ function openSettings() {
   }
   settingsWin = new BrowserWindow({
     width: 420,
-    height: 620,
+    height: 760,
     resizable: false,
     minimizable: false,
     maximizable: false,
@@ -510,13 +999,41 @@ function openSettings() {
   settingsWin.once('ready-to-show', () => settingsWin.show());
 }
 
-/* ---------------- shortcut ---------------- */
+/* ---------------- shortcuts ---------------- */
 
-function registerShortcut(accel) {
-  if (settings.shortcut) globalShortcut.unregister(settings.shortcut);
+// both hotkeys stop an active recording (or fire an armed one); with the
+// overlay already open they just flip its snip/record mode
+function hotkeyPressed(mode) {
+  if (recording) {
+    if (recording.status === 'armed') beginArmedRecording();
+    else stopRecording(false);
+    return;
+  }
+  if (capturing) { setSnipMode(mode); return; }
+  startSnip(mode);
+}
+
+function regHotkey(accel, mode) {
+  if (!accel) return false;
   try {
-    return globalShortcut.register(accel, () => startSnip());
+    return globalShortcut.register(accel, () => hotkeyPressed(mode));
   } catch { return false; }
+}
+
+// swap both hotkeys to a new pair; rolls back to the current pair on failure.
+// Returns null on success, otherwise a user-facing error.
+function bindHotkeys(shortcut, recordShortcut) {
+  globalShortcut.unregister(settings.shortcut);
+  if (settings.recordShortcut) globalShortcut.unregister(settings.recordShortcut);
+  const okSnip = regHotkey(shortcut, 'image');
+  const okRec = !recordShortcut || regHotkey(recordShortcut, 'video');
+  if (okSnip && okRec) return null;
+  if (okSnip) globalShortcut.unregister(shortcut);
+  if (okRec && recordShortcut) globalShortcut.unregister(recordShortcut);
+  regHotkey(settings.shortcut, 'image');
+  if (settings.recordShortcut) regHotkey(settings.recordShortcut, 'video');
+  const bad = okSnip ? recordShortcut : shortcut;
+  return `${bad} could not be registered — it may be in use.`;
 }
 
 /* ---------------- auto update (GitHub releases) ---------------- */
@@ -582,14 +1099,36 @@ function applyAutoUpdateSetting() {
 
 function createTray() {
   tray = new Tray(asset('tray.png'));
-  tray.setToolTip('snippit-good — quick snips');
   const rebuild = () => {
-    const items = [
-      { label: `New snip\t${settings.shortcut}`, click: () => startSnip() },
-      { label: 'Show recent snips', click: () => { if (snips.length) showBar(); } },
-      { label: 'Settings…', click: () => openSettings() },
-      { label: 'Check for updates…', click: () => { openSettings(); checkForUpdates(); } },
-    ];
+    const armed = recording && recording.status === 'armed';
+    tray.setToolTip(armed
+      ? 'snippit-good — adjust the area, then press Record'
+      : recording
+        ? 'snippit-good — recording… (press the shortcut to stop)'
+        : 'snippit-good — quick snips');
+    const items = [];
+    if (armed) {
+      items.push({ label: 'Start recording', click: () => beginArmedRecording() });
+      items.push({ label: 'Cancel', click: () => stopRecording(true) });
+      items.push({ type: 'separator' });
+    } else if (recording) {
+      items.push({ label: 'Stop recording — save', click: () => stopRecording(false) });
+      items.push({ label: 'Cancel recording — discard', click: () => stopRecording(true) });
+      items.push({ type: 'separator' });
+    }
+    items.push({
+      label: `New snip\t${settings.shortcut}`,
+      enabled: !recording,
+      click: () => { if (!recording) startSnip('image'); },
+    });
+    items.push({
+      label: `New recording${settings.recordShortcut ? `\t${settings.recordShortcut}` : ''}`,
+      enabled: !recording,
+      click: () => { if (!recording) startSnip('video'); },
+    });
+    items.push({ label: 'Show recent snips', click: () => { if (snips.length) showBar(); } });
+    items.push({ label: 'Settings…', click: () => openSettings() });
+    items.push({ label: 'Check for updates…', click: () => { openSettings(); checkForUpdates(); } });
     if (updateReadyVersion) {
       items.push({ type: 'separator' });
       items.push({
@@ -602,31 +1141,76 @@ function createTray() {
     tray.setContextMenu(Menu.buildFromTemplate(items));
   };
   rebuild();
-  tray.on('double-click', () => startSnip());
+  tray.on('double-click', () => hotkeyPressed('image'));
   tray.rebuildMenu = rebuild;
+}
+
+function refreshTray() {
+  if (tray && tray.rebuildMenu) tray.rebuildMenu();
 }
 
 /* ---------------- ipc ---------------- */
 
-ipcMain.on('overlay:select', (_e, { displayId, rect }) => finalizeCapture(displayId, rect));
+ipcMain.on('overlay:select', (_e, { displayId, rect, mode }) => {
+  if (mode === 'video') finalizeRecordSelection(displayId, rect);
+  else finalizeCapture(displayId, rect);
+});
 ipcMain.on('overlay:cancel', () => cancelSnip());
+ipcMain.on('overlay:mode', (_e, mode) => setSnipMode(mode));
 
 ipcMain.on('bar:resize', (_e, height) => {
   positionBar(Math.max(60, Math.min(640, Math.round(height))));
 });
 ipcMain.on('bar:hide', () => barWin && barWin.hide());
-ipcMain.on('snip:new', () => startSnip());
+ipcMain.on('snip:new', () => startSnip('image'));
 ipcMain.on('snip:edit', (_e, id) => openEditor(id));
 ipcMain.on('snip:remove', (_e, id) => removeSnip(id));
 ipcMain.on('settings:open', () => openSettings());
+ipcMain.on('video:play', (_e, id) => openPlayer(id));
 
 ipcMain.handle('snip:copy', (_e, id) => {
   const snip = snips.find((s) => s.id === id);
   if (!snip) return false;
+  if (snip.kind === 'video') return copyFileToClipboard(snip.file);
   try {
     clipboard.writeImage(nativeImage.createFromPath(snip.file));
     return true;
   } catch { return false; }
+});
+
+ipcMain.handle('player:get-snip', (_e, id) => {
+  const snip = snips.find((s) => s.id === id && s.kind === 'video');
+  if (!snip || !fs.existsSync(snip.file)) return null;
+  return {
+    id: snip.id,
+    fileUrl: pathToFileURL(snip.file).href,
+    width: snip.width,
+    height: snip.height,
+    durationMs: snip.durationMs || 0,
+    createdAt: snip.createdAt,
+  };
+});
+
+ipcMain.handle('video:save', async (e, id) => {
+  const snip = snips.find((s) => s.id === id && s.kind === 'video');
+  if (!snip || !fs.existsSync(snip.file)) return false;
+  const ext = path.extname(snip.file).slice(1) || 'webm';
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const { canceled, filePath } = await dialog.showSaveDialog(win, {
+    title: 'Save recording',
+    defaultPath: path.join(app.getPath('videos'), `recording.${ext}`),
+    filters: [{ name: `${ext.toUpperCase()} video`, extensions: [ext] }],
+  });
+  if (canceled || !filePath) return false;
+  try {
+    fs.copyFileSync(snip.file, filePath);
+    return true;
+  } catch { return false; }
+});
+
+ipcMain.on('video:show-in-folder', (_e, id) => {
+  const snip = snips.find((s) => s.id === id && s.kind === 'video');
+  if (snip && fs.existsSync(snip.file)) shell.showItemInFolder(snip.file);
 });
 
 ipcMain.handle('editor:get-snip', (_e, id) => {
@@ -673,23 +1257,19 @@ ipcMain.on('open-releases-page', () =>
   shell.openExternal('https://github.com/cwbrandsdal/snippit-good/releases'));
 ipcMain.handle('settings:set', (_e, patch) => {
   const next = { ...settings, ...patch };
-  if (patch.shortcut && patch.shortcut !== settings.shortcut) {
-    const prev = settings.shortcut;
-    globalShortcut.unregister(prev);
-    let ok = false;
-    try { ok = globalShortcut.register(patch.shortcut, () => startSnip()); } catch {}
-    if (!ok) {
-      registerShortcut(prev);
-      settings = { ...next, shortcut: prev };
-      saveSettings();
-      pushSnipsToBar();
-      return { ok: false, error: 'That shortcut could not be registered — it may be in use.', settings };
+  const shortcutsChanged = next.shortcut !== settings.shortcut
+    || next.recordShortcut !== settings.recordShortcut;
+  if (shortcutsChanged) {
+    if (next.recordShortcut && next.recordShortcut === next.shortcut) {
+      return { ok: false, error: 'Snip and recording shortcuts must be different.', settings };
     }
+    const error = bindHotkeys(next.shortcut, next.recordShortcut);
+    if (error) return { ok: false, error, settings };
   }
   const autoUpdateChanged = next.autoUpdate !== settings.autoUpdate;
   settings = next;
   saveSettings();
-  if (tray && tray.rebuildMenu) tray.rebuildMenu();
+  refreshTray();
   if (autoUpdateChanged) applyAutoUpdateSetting();
   pushSnipsToBar();
   return { ok: true, settings };
@@ -868,6 +1448,176 @@ async function runSelfTest() {
       console.log('SELFTEST_PARTIAL ui ok; overlay skipped (no live screen capture here)');
     }
 
+    // --- record mode, end to end: Tab toggle -> drag -> pause/resume -> stop ---
+    {
+      if (!capturing) {
+        capturing = true;
+        captureSession++;
+        const dT = screen.getPrimaryDisplay();
+        presentOverlays([{
+          display: dT,
+          image: makeTestImage(
+            Math.round(dT.bounds.width * dT.scaleFactor),
+            Math.round(dT.bounds.height * dT.scaleFactor)),
+        }]);
+        await sleep(800);
+      }
+      if (!overlays.length) {
+        console.log('REC_SKIP no overlay window to drive record mode');
+      } else {
+        const ovw = overlays[0].win;
+        ovw.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' });
+        ovw.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' });
+        await sleep(300);
+        const m = await ovw.webContents.executeJavaScript('document.body.dataset.mode');
+        console.log(m === 'video'
+          ? 'MODE_TOGGLE_OK Tab switched the overlay to record mode'
+          : `MODE_TOGGLE_FAIL overlay mode is '${m}' after Tab`);
+        await shoot(ovw, 'overlay-record-mode.png');
+
+        // drag out a region — this is the real drag-to-record flow, ending in
+        // overlay:select {mode:'video'} -> startRecording
+        const send = (ev) => ovw.webContents.sendInputEvent(ev);
+        send({ type: 'mouseDown', x: 100, y: 100, button: 'left', clickCount: 1 });
+        for (let i = 1; i <= 8; i++) {
+          send({ type: 'mouseMove', x: 100 + i * 61, y: 100 + i * 40 });
+          await sleep(15);
+        }
+        send({ type: 'mouseUp', x: 588, y: 420, button: 'left', clickCount: 1 });
+
+        // default settings ARM the recording first: adjustable frame + Record button
+        let waited = 0;
+        while (waited < 5000 && (!recording || recording.status !== 'armed')) {
+          await sleep(100);
+          waited += 100;
+          if (!recording && waited >= 3000) break; // selection never armed one
+        }
+        let ready = false;
+        if (!recording || recording.status !== 'armed') {
+          console.log(`ARM_FAIL drag did not arm a recording (status=${recording ? recording.status : 'none'})`);
+          if (recording) stopRecording(true);
+        } else {
+          console.log(`ARMED_OK region armed ~${waited}ms after drag rect=${JSON.stringify(recording.rect)}`);
+          await sleep(500); // let the frame window paint its handles
+          const fw = recording.frameWin;
+          await shoot(fw, 'rec-frame-armed.png');
+          // resize by dragging the SE handle +60/+60 (the box border sits 3px outside
+          // the rect). Forwarding is paused so the REAL cursor's forwarded moves
+          // can't pollute the synthetic drag.
+          fw.setIgnoreMouseEvents(true);
+          const gx = 100 + 488 + 3;
+          const gy = 100 + 320 + 3;
+          const fsend = (ev) => fw.webContents.sendInputEvent(ev);
+          fsend({ type: 'mouseDown', x: gx, y: gy, button: 'left', clickCount: 1 });
+          for (let i = 1; i <= 6; i++) {
+            fsend({ type: 'mouseMove', x: gx + i * 10, y: gy + i * 10, modifiers: ['leftButtonDown'] });
+            await sleep(20);
+          }
+          fsend({ type: 'mouseUp', x: gx + 60, y: gy + 60, button: 'left', clickCount: 1 });
+          await sleep(300);
+          fw.setIgnoreMouseEvents(true, { forward: true });
+          const rr = recording.rect;
+          console.log(rr.w === 548 && rr.h === 380
+            ? `RESIZE_OK region resized to ${rr.w}x${rr.h} via SE handle`
+            : `RESIZE_FAIL rect=${JSON.stringify(rr)} (expected 548x380)`);
+          await shoot(recording.barWin, 'rec-hud-armed.png');
+          // press the HUD's real Record button
+          await recording.barWin.webContents.executeJavaScript(
+            `document.getElementById('btn-record').click()`);
+          waited = 0;
+          while (waited < 10000 && recording
+            && (recording.status === 'armed' || recording.status === 'starting')) {
+            await sleep(100);
+            waited += 100;
+          }
+          ready = !!recording && recording.status === 'recording';
+        }
+        if (!ready) {
+          console.log('REC_FAIL recording did not start after Record press');
+          if (recording) stopRecording(true);
+        } else {
+          console.log(`recording started ~${waited}ms after Record press`
+            + ` mime=${recording.meta ? recording.meta.mimeType : '?'}`);
+          await sleep(400);
+          if (recording.barWin && !recording.barWin.isDestroyed()) {
+            await shoot(recording.barWin, 'rec-hud.png');
+          }
+          // pause / resume through the HUD's real buttons
+          const hud = recording.barWin.webContents;
+          await hud.executeJavaScript(`document.getElementById('btn-pause').click()`);
+          await sleep(200);
+          const pausedState = await hud.executeJavaScript('document.body.dataset.status');
+          await sleep(500);
+          await hud.executeJavaScript(`document.getElementById('btn-pause').click()`);
+          await sleep(200);
+          const resumedState = await hud.executeJavaScript('document.body.dataset.status');
+          console.log(pausedState === 'paused' && resumedState === 'recording'
+            ? 'PAUSE_OK pause/resume round-trip works'
+            : `PAUSE_FAIL paused=${pausedState} resumed=${resumedState}`);
+          await sleep(1800);
+          stopRecording(false);
+          let waitedStop = 0;
+          while (waitedStop < 8000 && recording) {
+            await sleep(100);
+            waitedStop += 100;
+          }
+          const v = snips[0];
+          if (!recording && v && v.kind === 'video' && fs.existsSync(v.file) && v.durationMs > 500) {
+            const kb = Math.round(fs.statSync(v.file).size / 1024);
+            console.log(`REC_OK ${v.width}x${v.height} ${v.durationMs}ms ${kb}KB`
+              + ` ${path.extname(v.file)} poster=${v.poster ? 'yes' : 'no'}`);
+            await sleep(400);
+            await shoot(barWin, 'bar-video.png');
+
+            // the built-in player should load the file and read its size
+            openPlayer(v.id);
+            const pw = players.get(v.id);
+            await new Promise((res) => pw.webContents.once('did-finish-load', res));
+            await sleep(1200);
+            const ps = await pw.webContents.executeJavaScript(
+              `({ w: document.getElementById('v').videoWidth,
+                  h: document.getElementById('v').videoHeight,
+                  err: document.getElementById('v').error && document.getElementById('v').error.message })`);
+            console.log(ps.w > 0
+              ? `PLAYER_OK video decodes at ${ps.w}x${ps.h}`
+              : `PLAYER_FAIL video element reports ${JSON.stringify(ps)}`);
+            await shoot(pw, 'player.png');
+            pw.close();
+          } else {
+            console.log(`REC_FAIL stuck=${!!recording}`
+              + ` newest=${v ? `${v.kind}/${v.durationMs}ms` : 'none'}`);
+            if (recording) { try { stopRecording(true); } catch {} }
+          }
+        }
+      }
+    }
+
+    // --- instant mode: armBeforeRecord=false records the moment the drag ends ---
+    {
+      const prevArm = settings.armBeforeRecord;
+      settings.armBeforeRecord = false;
+      await startRecording(screen.getPrimaryDisplay(), { x: 140, y: 140, w: 320, h: 200 });
+      let t2 = 0;
+      while (t2 < 10000 && recording && recording.status === 'starting') {
+        await sleep(100);
+        t2 += 100;
+      }
+      if (recording && recording.status === 'recording') {
+        await sleep(1300);
+        stopRecording(false);
+        t2 = 0;
+        while (t2 < 8000 && recording) { await sleep(100); t2 += 100; }
+        const v2 = snips[0];
+        console.log(!recording && v2 && v2.kind === 'video' && fs.existsSync(v2.file)
+          ? `REC2_OK instant mode ${v2.width}x${v2.height} ${v2.durationMs}ms`
+          : 'REC2_FAIL instant mode did not produce a video');
+      } else {
+        console.log('REC2_FAIL instant recording never started');
+        if (recording) stopRecording(true);
+      }
+      settings.armBeforeRecord = prevArm;
+    }
+
     // the bar should fade away on its own ~10s after it appeared
     await sleep(11500);
     if (barWin.isVisible()) {
@@ -896,7 +1646,7 @@ if (SMOKE || SELFTEST) {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => startSnip());
+  app.on('second-instance', () => hotkeyPressed('image'));
 
   app.whenReady().then(() => {
     app.setAppUserModelId('no.cwb.snippit-good');
@@ -904,14 +1654,24 @@ if (!app.requestSingleInstanceLock()) {
     loadSnips();
     createBar();
     createTray();
+    initDisplayMediaHandler();
     ensureOverlayPool(); // pre-load overlay windows so the hotkey is instant
     screen.on('display-added', ensureOverlayPool);
     screen.on('display-removed', ensureOverlayPool);
     screen.on('display-metrics-changed', ensureOverlayPool);
     applyAutoUpdateSetting();
-    if (!registerShortcut(settings.shortcut)) {
+    if (!regHotkey(settings.shortcut, 'image')) {
       settings.shortcut = DEFAULT_SETTINGS.shortcut;
-      registerShortcut(settings.shortcut);
+      regHotkey(settings.shortcut, 'image');
+    }
+    if (settings.recordShortcut === settings.shortcut) settings.recordShortcut = '';
+    if (settings.recordShortcut && !regHotkey(settings.recordShortcut, 'video')) {
+      // fall back to the default record shortcut, else run without one
+      settings.recordShortcut = settings.recordShortcut !== DEFAULT_SETTINGS.recordShortcut
+        && DEFAULT_SETTINGS.recordShortcut !== settings.shortcut
+        && regHotkey(DEFAULT_SETTINGS.recordShortcut, 'video')
+        ? DEFAULT_SETTINGS.recordShortcut : '';
+      refreshTray();
     }
     if (snips.length) {
       // bar shows once content has loaded; size arrives via bar:resize
@@ -929,7 +1689,16 @@ if (!app.requestSingleInstanceLock()) {
 
   // tray app: keep running with no windows
   app.on('window-all-closed', () => {});
-  app.on('before-quit', () => { quitting = true; });
+  app.on('before-quit', (e) => {
+    quitting = true;
+    if (recording && !recording.finalizing) {
+      // let the recorder flush to disk first; finalizeRecording re-quits
+      e.preventDefault();
+      stopRecording(false);
+      if (!recording) { app.quit(); return; } // armed/starting abort is synchronous
+      setTimeout(() => { if (!recording) app.quit(); }, 2500);
+    }
+  });
   app.on('will-quit', () => {
     globalShortcut.unregisterAll();
     gdi.dispose();

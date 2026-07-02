@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'" />
+  <title>snippit-good — recording frame</title>
+  <style>
+    /* Full-display transparent window. While ARMED the region can be resized
+       (handles) and moved (border lines); everywhere else the window is
+       click-through so the desktop stays usable for preparing the shot.
+       Once locked (recording), only the border remains and the whole window
+       ignores the mouse. The border box sits a few px OUTSIDE the recorded
+       region so its pixels can never leak into the video, even where the OS
+       ignores content protection. */
+    html, body { margin: 0; width: 100%; height: 100%; background: transparent; overflow: hidden; }
+
+    #box {
+      position: fixed;
+      border: 3px solid #ff4d4d;
+      border-radius: 5px;
+      box-sizing: border-box;
+      pointer-events: none;
+    }
+    body.locked #box { animation: breathe 1.8s ease-in-out infinite; }
+    @keyframes breathe { 50% { border-color: rgba(255, 77, 77, 0.45); } }
+
+    /* move zones: the four border lines */
+    .edge {
+      position: absolute;
+      pointer-events: auto;
+      cursor: move;
+    }
+    .edge-n { left: 8px; right: 8px; top: -5px; height: 10px; }
+    .edge-s { left: 8px; right: 8px; bottom: -5px; height: 10px; }
+    .edge-w { top: 8px; bottom: 8px; left: -5px; width: 10px; }
+    .edge-e { top: 8px; bottom: 8px; right: -5px; width: 10px; }
+
+    /* resize handles: white dots on the border, generous hit areas */
+    .handle {
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      transform: translate(-50%, -50%);
+      pointer-events: auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .handle::after {
+      content: '';
+      width: 10px;
+      height: 10px;
+      background: #fff;
+      border: 2px solid #ff4d4d;
+      border-radius: 50%;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+    }
+    .h-nw { left: 0; top: 0; cursor: nwse-resize; }
+    .h-n  { left: 50%; top: 0; cursor: ns-resize; }
+    .h-ne { left: 100%; top: 0; cursor: nesw-resize; }
+    .h-w  { left: 0; top: 50%; cursor: ew-resize; }
+    .h-e  { left: 100%; top: 50%; cursor: ew-resize; }
+    .h-sw { left: 0; top: 100%; cursor: nesw-resize; }
+    .h-s  { left: 50%; top: 100%; cursor: ns-resize; }
+    .h-se { left: 100%; top: 100%; cursor: nwse-resize; }
+
+    #dims {
+      position: absolute;
+      top: calc(100% + 10px);
+      right: 0;
+      background: rgba(24, 26, 32, 0.94);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 7px;
+      padding: 4px 9px;
+      font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+      font-size: 12px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      color: #e9ecf1;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+    #box.flip-dims #dims { top: auto; bottom: calc(100% + 10px); }
+
+    body.locked .edge,
+    body.locked .handle,
+    body.locked #dims { display: none; }
+  </style>
+</head>
+<body>
+  <div id="box">
+    <div class="edge edge-n" data-k="move"></div>
+    <div class="edge edge-s" data-k="move"></div>
+    <div class="edge edge-w" data-k="move"></div>
+    <div class="edge edge-e" data-k="move"></div>
+    <span class="handle h-nw" data-k="nw"></span><span class="handle h-n" data-k="n"></span><span class="handle h-ne" data-k="ne"></span>
+    <span class="handle h-w" data-k="w"></span><span class="handle h-e" data-k="e"></span>
+    <span class="handle h-sw" data-k="sw"></span><span class="handle h-s" data-k="s"></span><span class="handle h-se" data-k="se"></span>
+    <div id="dims">0 × 0</div>
+  </div>
+  <script src="frame.js"></script>
+</body>
+</html>

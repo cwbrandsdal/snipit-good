@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; media-src 'self' file:; img-src data:; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com" />
+  <title>snippit-good — recording</title>
+  <link rel="stylesheet" href="player.css" />
+</head>
+<body>
+  <header id="titlebar">
+    <span class="brand">snippit<span class="dot">-</span>good</span>
+    <span class="title-sub">recording</span>
+    <span class="spacer"></span>
+    <span id="meta"></span>
+  </header>
+
+  <main id="stage">
+    <video id="v" controls autoplay></video>
+    <div id="missing" hidden>This recording is gone — it was removed from recent snips.</div>
+  </main>
+
+  <footer id="foot">
+    <button class="btn-primary" id="btn-copy" title="Copy the video file — paste it into chats or folders">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      Copy file
+    </button>
+    <button class="btn-ghost" id="btn-save">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+      Save as…
+    </button>
+    <button class="btn-ghost" id="btn-folder">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+      Show in folder
+    </button>
+  </footer>
+
+  <div class="toast" id="toast"><span class="tick">✓</span><span id="toast-text"></span></div>
+  <script src="player.js"></script>
+</body>
+</html>

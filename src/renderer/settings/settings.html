@@ -25,12 +25,40 @@
       <p class="status" id="shortcut-status"></p>
     </section>
 
+    <section class="setting">
+      <div class="setting-head">
+        <h2>Recording shortcut</h2>
+        <p>Starts a screen recording right away — press it again to stop. You can also press <strong>Tab</strong> in the snip overlay to switch between snip and record.</p>
+      </div>
+      <div class="shortcut-row">
+        <button id="rec-shortcut-field" title="Click, then press the new shortcut">Ctrl+Alt+R</button>
+        <button class="btn-ghost" id="rec-shortcut-reset" title="Reset to Ctrl+Alt+R">Reset</button>
+      </div>
+      <p class="status" id="rec-shortcut-status"></p>
+    </section>
+
     <section class="setting row">
       <div class="setting-head">
         <h2>Copy on capture</h2>
-        <p>Put every new snip straight on the clipboard.</p>
+        <p>Put every new snip straight on the clipboard. Recordings copy as a file you can paste into chats and folders.</p>
       </div>
       <button class="switch" id="autocopy" role="switch" aria-checked="false"><span class="knob"></span></button>
+    </section>
+
+    <section class="setting row">
+      <div class="setting-head">
+        <h2>Adjust before recording</h2>
+        <p>After you drag out an area, resize or move it and press <strong>Record</strong> when you're ready. Turn off to start recording the instant you release the mouse.</p>
+      </div>
+      <button class="switch" id="armrecord" role="switch" aria-checked="true"><span class="knob"></span></button>
+    </section>
+
+    <section class="setting row">
+      <div class="setting-head">
+        <h2>Record system audio</h2>
+        <p>Include the sound you hear in screen recordings.</p>
+      </div>
+      <button class="switch" id="recaudio" role="switch" aria-checked="true"><span class="knob"></span></button>
     </section>
 
     <section class="setting">
@@ -54,7 +82,7 @@
 
     <section class="setting note">
       <h2>Recent snips</h2>
-      <p>The bar keeps your <strong>last 3</strong> snips and fades away after ~10&nbsp;seconds — use its pin button to keep it open. Older snips are removed automatically; save anything you want to keep.</p>
+      <p>The bar keeps your <strong>last 3</strong> captures — snips and recordings alike — and fades away after ~10&nbsp;seconds; use its pin button to keep it open. Older captures are removed automatically; save anything you want to keep.</p>
     </section>
   </main>
 
