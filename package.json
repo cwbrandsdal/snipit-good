@@ -1,7 +1,7 @@
 {
   "name": "snippit-good",
   "productName": "snippit-good",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Lightweight Windows screenshot utility: snip with a shortcut, keep the last three snips in a floating bar, annotate, and copy.",
   "main": "src/main/main.js",
   "repository": {
