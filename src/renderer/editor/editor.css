@@ -140,6 +140,23 @@ body { display: flex; flex-direction: column; }
 .side-item .side-del:hover { background: var(--danger); }
 .side-item .side-del svg { width: 12px; height: 12px; }
 
+/* nested variants: indented under their original with an elbow connector */
+.nest-row { position: relative; margin-left: 22px; }
+.nest-row::before {
+  content: '';
+  position: absolute;
+  left: -14px;
+  top: -10px;
+  width: 11px;
+  height: calc(50% + 10px);
+  border-left: 2px solid var(--line-strong);
+  border-bottom: 2px solid var(--line-strong);
+  border-bottom-left-radius: 8px;
+  pointer-events: none;
+}
+.nest-row .side-item img,
+.nest-row .side-item .no-thumb { height: 68px; }
+
 /* ---- video mode: playback pane replaces the annotation UI ---- */
 #video-pane { flex: 1; display: none; flex-direction: column; min-height: 0; }
 body.mode-video #video-pane { display: flex; }

@@ -9,6 +9,7 @@ const {
 } = require('electron');
 
 const gdi = require('./gdi-capture');
+const winEnum = require('./win-enum');
 
 const SMOKE = process.argv.includes('--smoke');
 const UPDATE_CHECK_INTERVAL = 4 * 60 * 60 * 1000; // every 4 hours
@@ -398,6 +399,53 @@ function sendOverlayImage(rec) {
   });
 }
 
+/* ---- window snapping: hovering a window in the overlay highlights it,
+   a plain click selects its full bounds ---- */
+
+// shell/housekeeping windows that must never be snap targets
+const SNAP_EXCLUDE_CLASSES = new Set([
+  'Progman', 'WorkerW', 'Shell_TrayWnd', 'Shell_SecondaryTrayWnd',
+  'NotifyIconOverflowWindow', 'Windows.UI.Core.CoreWindow', 'XamlExplorerHostIslandWindow',
+]);
+
+function ownWindowHandles() {
+  const own = new Set();
+  for (const w of BrowserWindow.getAllWindows()) {
+    try { own.add(w.getNativeWindowHandle().readBigUInt64LE(0).toString()); } catch {}
+  }
+  return own;
+}
+
+// enumerate app windows and hand each overlay the ones on its display,
+// in z-order, as display-local DIP rects clamped to that display
+function sendWindowSnapTargets(session) {
+  winEnum.listWindows().then((wins) => {
+    if (session !== captureSession || !overlays.length) return;
+    const own = ownWindowHandles();
+    const targets = [];
+    for (const w of wins) {
+      if (own.has(w.hwnd) || SNAP_EXCLUDE_CLASSES.has(w.className)) continue;
+      let dip;
+      try { dip = screen.screenToDipRect(null, w.rect); } catch { continue; }
+      targets.push({ ...dip, title: w.title });
+      if (targets.length >= 80) break;
+    }
+    for (const o of overlays) {
+      if (!o.win || o.win.isDestroyed()) continue;
+      const db = o.display.bounds;
+      const local = [];
+      for (const t of targets) {
+        const x = Math.max(0, t.x - db.x);
+        const y = Math.max(0, t.y - db.y);
+        const w = Math.min(db.width, t.x + t.width - db.x) - x;
+        const h = Math.min(db.height, t.y + t.height - db.y) - y;
+        if (w >= 24 && h >= 24) local.push({ x, y, w, h, title: t.title });
+      }
+      o.win.webContents.send('overlay:windows', local);
+    }
+  }).catch((err) => console.error('window enumeration failed:', err.message));
+}
+
 async function startSnip(mode = 'image') {
   if (capturing || recording) return;
   capturing = true;
@@ -425,6 +473,7 @@ async function startSnip(mode = 'image') {
       image: null,
     })).filter((o) => o.win && !o.win.isDestroyed());
     for (const o of overlays) armOverlay(o);
+    sendWindowSnapTargets(session);
     globalShortcut.register('Escape', () => cancelSnip());
     // the bar sits under the overlay and is content-protected, so hiding it
     // can happen after the overlay is already up
@@ -465,6 +514,7 @@ function presentOverlays(captures) {
   })).filter((o) => o.win && !o.win.isDestroyed());
   for (const o of overlays) armOverlay(o, () => sendOverlayImage(o));
   if (overlays.length === 0) { cancelSnip(); return; }
+  sendWindowSnapTargets(captureSession);
   globalShortcut.register('Escape', () => cancelSnip());
 }
 
@@ -1803,6 +1853,22 @@ async function runSelfTest() {
             console.log(reedit.ops === 1 && reedit.w > 0
               ? `VARIANT_REEDIT_OK variant reopened with ${reedit.ops} editable op`
               : `VARIANT_REEDIT_FAIL ${JSON.stringify(reedit)}`);
+
+            // the variant must render NESTED under its parent in the sidebar
+            const nest = await lw.webContents.executeJavaScript(
+              `(() => {
+                 const card = document.querySelector('.side-item[data-id=${JSON.stringify(variant.id)}]');
+                 if (!card) return { ok: false, why: 'card missing' };
+                 const row = card.closest('.nest-row');
+                 if (!row) return { ok: false, why: 'not in a nest-row' };
+                 let el = row.previousElementSibling;
+                 while (el && el.classList.contains('nest-row')) el = el.previousElementSibling;
+                 return { ok: !!el && el.dataset.id === ${JSON.stringify(variant.parentId)},
+                          why: el ? el.dataset.id : 'no preceding root' };
+               })()`);
+            console.log(nest.ok
+              ? 'NESTED_OK variant renders indented under its parent'
+              : `NESTED_FAIL ${JSON.stringify(nest)}`);
             await shoot(lw, 'library-variant.png');
             lw.close();
           } else {
@@ -1838,6 +1904,55 @@ async function runSelfTest() {
         if (recording) stopRecording(true);
       }
       settings.armBeforeRecord = prevArm;
+    }
+
+    // --- window snapping: enumeration + click-a-window capture ---
+    {
+      try {
+        const wins = await winEnum.listWindows();
+        console.log(wins.length
+          ? `WINENUM_OK ${wins.length} windows (top: "${wins[0].title.slice(0, 40)}" ${wins[0].rect.width}x${wins[0].rect.height})`
+          : 'WINENUM_EMPTY no windows enumerated');
+      } catch (err) {
+        console.log(`WINENUM_FAIL ${err.message}`);
+      }
+
+      capturing = true;
+      captureSession++;
+      snipMode = 'image'; // the record test left the overlay in video mode
+      const dS = screen.getPrimaryDisplay();
+      presentOverlays([{
+        display: dS,
+        image: makeTestImage(
+          Math.round(dS.bounds.width * dS.scaleFactor),
+          Math.round(dS.bounds.height * dS.scaleFactor)),
+      }]);
+      await sleep(1600); // let the REAL window list land first, then override it
+      if (overlays.length) {
+        const ov = overlays[0].win;
+        ov.webContents.send('overlay:windows',
+          [{ x: 220, y: 160, w: 402, h: 306, title: 'Fake App Window' }]);
+        await sleep(250);
+        ov.webContents.sendInputEvent({ type: 'mouseMove', x: 300, y: 220 });
+        await sleep(300);
+        const snapState = await ov.webContents.executeJavaScript(
+          `({ selVisible: !document.getElementById('sel').hidden,
+              dims: document.getElementById('dims').textContent })`);
+        const libBefore = library.length;
+        ov.webContents.sendInputEvent({ type: 'mouseDown', x: 300, y: 220, button: 'left', clickCount: 1 });
+        await sleep(80);
+        ov.webContents.sendInputEvent({ type: 'mouseUp', x: 300, y: 220, button: 'left', clickCount: 1 });
+        await sleep(900);
+        const s0 = library[0];
+        const grew = library.length === libBefore + 1 && s0 && s0.kind === 'image';
+        const sizeOk = grew && s0.width > 480 && s0.width < 520 && s0.height > 360 && s0.height < 400;
+        console.log(snapState.selVisible && snapState.dims.includes('Fake App') && sizeOk
+          ? `SNAP_OK hover highlighted ("${snapState.dims}"), click captured ${s0.width}x${s0.height}`
+          : `SNAP_FAIL hover=${JSON.stringify(snapState)} grew=${grew} size=${s0 ? `${s0.width}x${s0.height}` : 'n/a'}`);
+      } else {
+        console.log('SNAP_SKIP no overlay window');
+        capturing = false;
+      }
     }
 
     // --- keep-everything: nothing may be trimmed, the bar still shows 3 ---
@@ -1892,6 +2007,7 @@ if (!app.requestSingleInstanceLock()) {
     createTray();
     initDisplayMediaHandler();
     ensureOverlayPool(); // pre-load overlay windows so the hotkey is instant
+    winEnum.warmUp(); // window snapping needs the enumeration helper warm
     screen.on('display-added', ensureOverlayPool);
     screen.on('display-removed', ensureOverlayPool);
     screen.on('display-metrics-changed', ensureOverlayPool);
@@ -1928,15 +2044,19 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', (e) => {
     quitting = true;
     if (recording && !recording.finalizing) {
-      // let the recorder flush to disk first; finalizeRecording re-quits
+      // let the recorder flush to disk first, then re-quit. The re-quit MUST
+      // be async: a synchronous app.quit() inside a before-quit handler that
+      // just called preventDefault() is swallowed, which left the app running
+      // forever after quitting mid-recording.
       e.preventDefault();
       stopRecording(false);
-      if (!recording) { app.quit(); return; } // armed/starting abort is synchronous
-      setTimeout(() => { if (!recording) app.quit(); }, 2500);
+      const retry = () => { if (!recording) app.quit(); else setTimeout(retry, 250); };
+      setTimeout(retry, 100);
     }
   });
   app.on('will-quit', () => {
     globalShortcut.unregisterAll();
     gdi.dispose();
+    winEnum.dispose();
   });
 }

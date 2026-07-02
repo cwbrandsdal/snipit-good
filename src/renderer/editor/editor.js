@@ -593,63 +593,91 @@ function fmtWhen(ts) {
   return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')} ${time}`;
 }
 
+function makeCard(it) {
+  const card = document.createElement('div');
+  card.className = 'side-item';
+  card.dataset.id = it.id;
+  if (it.id === currentId) card.classList.add('active');
+  card.title = it.fileName;
+
+  if (it.thumbUrl) {
+    const img = document.createElement('img');
+    img.src = it.thumbUrl;
+    img.loading = 'lazy';
+    img.draggable = false;
+    card.appendChild(img);
+  } else {
+    const ph = document.createElement('div');
+    ph.className = 'no-thumb';
+    ph.innerHTML = KIND_ICONS[it.kind] || KIND_ICONS.image;
+    card.appendChild(ph);
+  }
+
+  if (it.kind === 'video') {
+    const tag = document.createElement('span');
+    tag.className = 'tag video';
+    tag.textContent = fmtDuration(it.durationMs);
+    card.appendChild(tag);
+  } else if (it.parentId) {
+    const tag = document.createElement('span');
+    tag.className = 'tag edit';
+    tag.textContent = 'EDIT';
+    card.appendChild(tag);
+  }
+
+  const meta = document.createElement('div');
+  meta.className = 'side-meta';
+  meta.innerHTML = `${KIND_ICONS[it.kind] || KIND_ICONS.image}<span>${it.width} × ${it.height}</span>`;
+  const when = document.createElement('span');
+  when.className = 'when';
+  when.textContent = fmtWhen(it.createdAt);
+  meta.appendChild(when);
+  card.appendChild(meta);
+
+  const del = document.createElement('button');
+  del.className = 'side-del';
+  del.title = 'Delete from history (removes the file)';
+  del.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg>';
+  del.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (confirm('Delete this capture permanently? The file is removed from disk.')) {
+      window.snippit.removeSnip(it.id);
+    }
+  });
+  card.appendChild(del);
+
+  card.addEventListener('click', () => selectItem(it.id));
+  return card;
+}
+
+/* Variants nest under their original so edit chains stay visible as one
+   group. Groups order by their latest activity — editing an old capture
+   floats the whole family back to the top. */
 function renderList() {
   sideList.replaceChildren();
   sideCount.textContent = items.length ? `${items.length}` : '';
+  const ids = new Set(items.map((i) => i.id));
+  const kids = new Map();
+  const roots = [];
   for (const it of items) {
-    const card = document.createElement('div');
-    card.className = 'side-item';
-    if (it.id === currentId) card.classList.add('active');
-    card.title = it.fileName;
-
-    if (it.thumbUrl) {
-      const img = document.createElement('img');
-      img.src = it.thumbUrl;
-      img.loading = 'lazy';
-      img.draggable = false;
-      card.appendChild(img);
+    if (it.parentId && ids.has(it.parentId)) {
+      if (!kids.has(it.parentId)) kids.set(it.parentId, []);
+      kids.get(it.parentId).push(it);
     } else {
-      const ph = document.createElement('div');
-      ph.className = 'no-thumb';
-      ph.innerHTML = KIND_ICONS[it.kind] || KIND_ICONS.image;
-      card.appendChild(ph);
+      roots.push(it); // orphaned variants surface as top-level items
     }
-
-    if (it.kind === 'video') {
-      const tag = document.createElement('span');
-      tag.className = 'tag video';
-      tag.textContent = fmtDuration(it.durationMs);
-      card.appendChild(tag);
-    } else if (it.parentId) {
-      const tag = document.createElement('span');
-      tag.className = 'tag edit';
-      tag.textContent = 'EDIT';
-      card.appendChild(tag);
+  }
+  const activity = (r) => Math.max(r.createdAt, ...(kids.get(r.id) || []).map((k) => k.createdAt));
+  roots.sort((a, b) => activity(b) - activity(a));
+  for (const root of roots) {
+    sideList.appendChild(makeCard(root));
+    const variants = (kids.get(root.id) || []).sort((a, b) => a.createdAt - b.createdAt);
+    for (const v of variants) {
+      const row = document.createElement('div');
+      row.className = 'nest-row';
+      row.appendChild(makeCard(v));
+      sideList.appendChild(row);
     }
-
-    const meta = document.createElement('div');
-    meta.className = 'side-meta';
-    meta.innerHTML = `${KIND_ICONS[it.kind] || KIND_ICONS.image}<span>${it.width} × ${it.height}</span>`;
-    const when = document.createElement('span');
-    when.className = 'when';
-    when.textContent = fmtWhen(it.createdAt);
-    meta.appendChild(when);
-    card.appendChild(meta);
-
-    const del = document.createElement('button');
-    del.className = 'side-del';
-    del.title = 'Delete from history (removes the file)';
-    del.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg>';
-    del.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (confirm('Delete this capture permanently? The file is removed from disk.')) {
-        window.snippit.removeSnip(it.id);
-      }
-    });
-    card.appendChild(del);
-
-    card.addEventListener('click', () => selectItem(it.id));
-    sideList.appendChild(card);
   }
 }
 
@@ -673,8 +701,8 @@ async function selectItem(id, opts = {}) {
   if (!item) { await refreshList(); return; }
   currentId = id;
   state.dirty = false;
-  [...sideList.children].forEach((el, i) =>
-    el.classList.toggle('active', items[i] && items[i].id === id));
+  sideList.querySelectorAll('.side-item').forEach((el) =>
+    el.classList.toggle('active', el.dataset.id === id));
   titleMeta.textContent = item.fileName || '';
 
   if (item.kind === 'video') {

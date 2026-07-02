@@ -8,18 +8,48 @@ const hintText = document.getElementById('hint-text');
 const modeImageBtn = document.getElementById('mode-image');
 const modeVideoBtn = document.getElementById('mode-video');
 
-const MIN_SIZE = 6; // selections smaller than this are treated as accidental
+const MIN_SIZE = 6; // drags smaller than this are clicks
 
 let displayId = null;
 let dragging = false;
 let start = { x: 0, y: 0 };
 let mode = 'image'; // 'image' snips a still, 'video' starts a screen recording
 
+/* window snapping: main sends the app windows on this display (z-order,
+   display-local px); hovering highlights one, a plain click selects it whole */
+let snapWindows = [];
+let snapRect = null;
+let mousePos = null;
+
 function paintMode() {
   document.body.dataset.mode = mode;
   modeImageBtn.classList.toggle('active', mode === 'image');
   modeVideoBtn.classList.toggle('active', mode === 'video');
-  hintText.textContent = mode === 'video' ? 'Drag to record' : 'Drag to capture';
+  hintText.textContent = mode === 'video'
+    ? 'Click a window or drag to record'
+    : 'Click a window or drag to capture';
+}
+
+function hitWindow(x, y) {
+  for (const w of snapWindows) {
+    if (x >= w.x && x < w.x + w.w && y >= w.y && y < w.y + w.h) return w;
+  }
+  return null;
+}
+
+function updateSnap(x, y) {
+  if (dragging) return;
+  const w = hitWindow(x, y);
+  if (w) {
+    snapRect = { x: w.x, y: w.y, w: w.w, h: w.h };
+    shade.hidden = true;
+    sel.hidden = false;
+    paintSel(snapRect, w.title);
+  } else if (snapRect) {
+    snapRect = null;
+    sel.hidden = true;
+    shade.hidden = false;
+  }
 }
 
 // armed: the window goes up instantly but paints NOTHING (only the crosshair
@@ -31,6 +61,9 @@ window.snippit.onOverlayArm(({ displayId: id, mode: m }) => {
   displayId = id;
   dragging = false;
   mode = m === 'video' ? 'video' : 'image';
+  snapWindows = [];
+  snapRect = null;
+  mousePos = null;
   paintMode();
   document.body.classList.remove('ready');
   shot.removeAttribute('src');
@@ -38,6 +71,11 @@ window.snippit.onOverlayArm(({ displayId: id, mode: m }) => {
   sel.hidden = true;
   shade.hidden = false;
   hint.classList.remove('gone');
+});
+
+window.snippit.onOverlayWindows((list) => {
+  snapWindows = Array.isArray(list) ? list : [];
+  if (mousePos) updateSnap(mousePos.x, mousePos.y);
 });
 
 window.snippit.onOverlayImage(({ dataUrl }) => {
@@ -49,6 +87,9 @@ window.snippit.onOverlayImage(({ dataUrl }) => {
 // hidden again — release the decoded full-screen frame
 window.snippit.onOverlayReset(() => {
   dragging = false;
+  snapWindows = [];
+  snapRect = null;
+  mousePos = null;
   document.body.classList.remove('ready');
   shot.removeAttribute('src');
   shot.hidden = true;
@@ -73,12 +114,15 @@ function rectFrom(a, b) {
   };
 }
 
-function paintSel(r) {
+function paintSel(r, title) {
   sel.style.left = `${r.x}px`;
   sel.style.top = `${r.y}px`;
   sel.style.width = `${r.w}px`;
   sel.style.height = `${r.h}px`;
-  dims.textContent = `${r.w} × ${r.h}`;
+  const label = title
+    ? `${title.length > 36 ? `${title.slice(0, 35)}…` : title} · ${r.w} × ${r.h}`
+    : `${r.w} × ${r.h}`;
+  dims.textContent = label;
   sel.classList.toggle('flip-dims', r.y + r.h > window.innerHeight - 56);
 }
 
@@ -88,14 +132,26 @@ window.addEventListener('mousedown', (e) => {
   dragging = true;
   start = { x: e.clientX, y: e.clientY };
   hint.classList.add('gone');
-  shade.hidden = true;
-  sel.hidden = false;
-  paintSel(rectFrom(start, start));
+  if (!snapRect) {
+    // no window highlighted — start a fresh region right away
+    shade.hidden = true;
+    sel.hidden = false;
+    paintSel(rectFrom(start, start));
+  }
 });
 
 window.addEventListener('mousemove', (e) => {
-  if (!dragging) return;
-  paintSel(rectFrom(start, { x: e.clientX, y: e.clientY }));
+  mousePos = { x: e.clientX, y: e.clientY };
+  if (!dragging) {
+    updateSnap(e.clientX, e.clientY);
+    return;
+  }
+  const dist = Math.max(Math.abs(e.clientX - start.x), Math.abs(e.clientY - start.y));
+  if (snapRect && dist < MIN_SIZE) return; // still a click — keep the window highlight
+  snapRect = null; // committed to a hand-drawn region
+  shade.hidden = true;
+  sel.hidden = false;
+  paintSel(rectFrom(start, mousePos));
 });
 
 window.addEventListener('mouseup', (e) => {
@@ -103,11 +159,17 @@ window.addEventListener('mouseup', (e) => {
   if (!dragging) return;
   dragging = false;
   const r = rectFrom(start, { x: e.clientX, y: e.clientY });
+  if (r.w < MIN_SIZE && r.h < MIN_SIZE && snapRect) {
+    // plain click on a highlighted window — take the whole window
+    window.snippit.overlaySelect({ displayId, rect: snapRect, mode });
+    return;
+  }
   if (r.w < MIN_SIZE || r.h < MIN_SIZE) {
-    // accidental click — reset and keep snipping
+    // accidental click on nothing — reset and keep snipping
     sel.hidden = true;
     shade.hidden = false;
     hint.classList.remove('gone');
+    if (mousePos) updateSnap(mousePos.x, mousePos.y);
     return;
   }
   window.snippit.overlaySelect({ displayId, rect: r, mode });

@@ -35,8 +35,10 @@ Icons are generated from `assets/icon-source.png` and committed; after changing 
 1. **Press the shortcut** — the screen dims and freezes (all monitors).
 2. **Pick a mode** — the overlay opens in **Snip** mode; press `Tab` (or click the pill at the
    top) to switch to **Record**. `Ctrl+Alt+R` (configurable) skips straight to record mode.
-3. **Drag** to select an area. Marching-ants border (mint for snips, red for recordings), live
-   size readout. `Esc` or right-click cancels; tiny accidental drags are ignored.
+3. **Pick the area** — drag a region, or just **hover a window and click**: the window under the
+   cursor is highlighted automatically (title + size shown) and a single click captures or
+   records its exact bounds. Marching-ants border (mint for snips, red for recordings), live
+   size readout. `Esc` or right-click cancels.
 4. **Release** —
    - **Snip:** the shot is **copied to the clipboard** (on by default) and lands in the
      recent-captures bar, lower-left, above the taskbar.
@@ -54,9 +56,11 @@ Icons are generated from `assets/icon-source.png` and committed; after changing 
    nothing is deleted automatically. The floating bar shows the **last 3** for quick access,
    lingers ~10 seconds, then fades — hover to keep it, or pin it open.
 6. **The library** (click any thumbnail, the bar's clock button, or the tray's *Library*) is one
-   window with your **whole history in a scrollable sidebar** — snips, recordings and edits.
-   Click an image to annotate it; click a recording to play it (copy file / save as / show in
-   folder). Deleting there (or in the bar) removes the file for real.
+   window with your **whole history in a scrollable sidebar** — snips, recordings and edits,
+   with **edits nested under their original** so a base image and its variants read as one
+   family (freshly edited families float to the top). Click an image to annotate it; click a
+   recording to play it (copy file / save as / show in folder). Deleting there (or in the bar)
+   removes the file for real.
 7. **Editor** — pen, highlighter, rectangle, circle, line, arrow, text, and pixelate, with colour
    and stroke-width pickers, undo/redo (`Ctrl+Z` / `Ctrl+Y`), zoom (`Ctrl+wheel`), crop/reset, save
    to PNG (`Ctrl+S`), and **Copy to clipboard** (`Ctrl+C`).
@@ -99,6 +103,7 @@ Recordings auto-stop after 30 minutes as a disk-space guard.
 ```
 src/
   main/main.js          app lifecycle, capture/recording orchestration, tray, shortcuts, library
+  main/win-enum.js      PowerShell Win32 helper: app-window bounds for click-a-window snapping
   preload/preload.js    contextBridge IPC surface
   renderer/
     overlay/            fullscreen snipping overlay with snip/record mode (one per display)

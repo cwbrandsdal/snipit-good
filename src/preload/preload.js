@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('snippit', {
   onOverlayImage: (cb) => ipcRenderer.on('overlay:image', (_e, p) => cb(p)),
   onOverlayReset: (cb) => ipcRenderer.on('overlay:reset', () => cb()),
   onOverlayMode: (cb) => ipcRenderer.on('overlay:mode', (_e, m) => cb(m)),
+  onOverlayWindows: (cb) => ipcRenderer.on('overlay:windows', (_e, list) => cb(list)),
   setOverlayMode: (mode) => ipcRenderer.send('overlay:mode', mode),
   overlaySelect: (payload) => ipcRenderer.send('overlay:select', payload),
   overlayCancel: () => ipcRenderer.send('overlay:cancel'),
