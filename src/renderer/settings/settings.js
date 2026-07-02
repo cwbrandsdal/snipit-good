@@ -130,6 +130,59 @@ autoCopyBtn.addEventListener('click', () => apply({ autoCopy: !current.autoCopy 
 recAudioBtn.addEventListener('click', () => apply({ recordAudio: current.recordAudio === false }, recField));
 recMicBtn.addEventListener('click', () => apply({ recordMic: !current.recordMic }, recField));
 
+/* --- account (WorkOS / Nivalo) --- */
+
+const authStatusEl = document.getElementById('auth-status');
+const authBtn = document.getElementById('btn-auth');
+const authErrorEl = document.getElementById('auth-error');
+const clientIdInput = document.getElementById('workos-client-id');
+let authState = null;
+
+function paintAuth() {
+  if (!authState) return;
+  authBtn.hidden = false;
+  if (authState.status === 'signed-in') {
+    const who = (authState.user && authState.user.email) || 'your account';
+    authStatusEl.textContent = `Signed in as ${who}.`;
+    authBtn.textContent = 'Sign out';
+  } else if (authState.status === 'unknown') {
+    authStatusEl.textContent = 'Checking session…';
+    authBtn.hidden = true;
+  } else if (!authState.configured) {
+    authStatusEl.textContent = 'Add the WorkOS client ID below (same public ID as the Nivalo console), then sign in.';
+    authBtn.textContent = 'Sign in…';
+  } else {
+    authStatusEl.textContent = 'Signed out — snips and recordings are locked until you sign in.';
+    authBtn.textContent = 'Sign in…';
+  }
+}
+
+authBtn.addEventListener('click', async () => {
+  authErrorEl.textContent = '';
+  authErrorEl.className = 'status';
+  if (authState && authState.status === 'signed-in') {
+    window.snippit.authLogout();
+    return;
+  }
+  authStatusEl.textContent = 'Waiting for the browser sign-in…';
+  authBtn.hidden = true;
+  const res = await window.snippit.authLogin();
+  if (!res.ok && res.error !== 'cancelled') {
+    authErrorEl.textContent = res.error || 'Sign-in failed.';
+    authErrorEl.className = 'status err';
+  }
+  authState = await window.snippit.authGetState();
+  paintAuth();
+});
+
+document.getElementById('btn-save-clientid').addEventListener('click', async () => {
+  await apply({ workOsClientId: clientIdInput.value.trim() });
+  authState = await window.snippit.authGetState();
+  paintAuth();
+});
+
+window.snippit.onAuthState((s) => { authState = s; paintAuth(); });
+
 /* --- microphone device picker --- */
 
 const micSelect = document.getElementById('mic-device');
@@ -235,6 +288,9 @@ document.getElementById('gh-link').addEventListener('click', (e) => {
 (async function boot() {
   current = await window.snippit.getSettings();
   paint();
+  clientIdInput.value = current.workOsClientId || '';
+  authState = await window.snippit.authGetState();
+  paintAuth();
   paintUpdate(await window.snippit.getUpdateState());
   loadMicDevices();
 })();

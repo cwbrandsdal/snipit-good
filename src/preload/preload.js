@@ -58,6 +58,13 @@ contextBridge.exposeInMainWorld('snippit', {
   playVideo: (id) => ipcRenderer.send('video:play', id),
   saveVideo: (id) => ipcRenderer.invoke('video:save', id),
 
+  // auth (WorkOS / Nivalo sign-in)
+  authGetState: () => ipcRenderer.invoke('auth:get-state'),
+  authLogin: () => ipcRenderer.invoke('auth:login'),
+  authCancelLogin: () => ipcRenderer.send('auth:cancel-login'),
+  authLogout: () => ipcRenderer.send('auth:logout'),
+  onAuthState: (cb) => ipcRenderer.on('auth:state', (_e, p) => cb(p)),
+
   // settings
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),

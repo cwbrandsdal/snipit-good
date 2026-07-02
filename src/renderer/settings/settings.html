@@ -14,6 +14,22 @@
 
   <main>
     <section class="setting">
+      <div class="setting-row-head">
+        <div class="setting-head">
+          <h2>Account</h2>
+          <p id="auth-status">Checking session…</p>
+        </div>
+        <button class="btn-ghost" id="btn-auth" hidden>Sign in…</button>
+      </div>
+      <div class="mic-row">
+        <label for="workos-client-id">Client&nbsp;ID</label>
+        <input type="text" id="workos-client-id" placeholder="client_… (WorkOS AuthKit client ID)" spellcheck="false" autocomplete="off" />
+        <button class="btn-ghost" id="btn-save-clientid">Save</button>
+      </div>
+      <p class="status" id="auth-error"></p>
+    </section>
+
+    <section class="setting">
       <div class="setting-head">
         <h2>Capture shortcut</h2>
         <p>Works anywhere — press it to start a new snip.</p>

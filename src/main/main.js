@@ -10,6 +10,7 @@ const {
 
 const gdi = require('./gdi-capture');
 const winEnum = require('./win-enum');
+const auth = require('./auth');
 
 const SMOKE = process.argv.includes('--smoke');
 const UPDATE_CHECK_INTERVAL = 4 * 60 * 60 * 1000; // every 4 hours
@@ -37,6 +38,7 @@ const DEFAULT_SETTINGS = {
   audioQuality: 'standard', // low | standard | high
   armBeforeRecord: true, // pick a region, adjust it, press Record — vs. record instantly
   saveDir: '', // where captures are written; resolved to Pictures\snippit-good when empty
+  workOsClientId: '', // public AuthKit client ID (same one the Nivalo console uses)
 };
 
 const AUDIO_BITRATES = { low: 64000, standard: 128000, high: 192000 };
@@ -219,6 +221,7 @@ function pushSnipsToBar(event) {
 }
 
 function showBar() {
+  if (!auth.isSignedIn()) return; // nothing shows before login
   if (!barWin || barWin.isDestroyed() || library.length === 0) return;
   if (!barWin.isVisible()) barWin.showInactive();
   // (re)arm the renderer's auto-hide countdown
@@ -454,6 +457,7 @@ function sendWindowSnapTargets(session) {
 
 async function startSnip(mode = 'image') {
   if (capturing || recording) return;
+  if (!requireAuth()) return;
   capturing = true;
   snipMode = mode === 'video' ? 'video' : 'image';
   const session = ++captureSession;
@@ -730,6 +734,7 @@ function finalizeRecordSelection(displayId, rect) {
 
 async function startRecording(display, rect) {
   if (recording || capturing) return;
+  if (!requireAuth()) return;
   rect = {
     x: Math.max(0, Math.round(rect.x)),
     y: Math.max(0, Math.round(rect.y)),
@@ -1059,6 +1064,7 @@ ipcMain.on('frame:rect', (e, r) => {
 /* ---------------- library window (editor + history + playback) ---------------- */
 
 function openLibrary(id) {
+  if (!requireAuth()) return;
   if (libraryWin && !libraryWin.isDestroyed()) {
     libraryWin.show();
     libraryWin.focus();
@@ -1081,6 +1087,76 @@ function openLibrary(id) {
   libraryWin.once('ready-to-show', () => libraryWin.show());
   libraryWin.on('closed', () => { libraryWin = null; });
 }
+
+/* ---------------- auth gate (WorkOS / Nivalo) ---------------- */
+
+let loginWin = null;
+
+function openLogin() {
+  if (loginWin && !loginWin.isDestroyed()) {
+    loginWin.show();
+    loginWin.focus();
+    return;
+  }
+  loginWin = new BrowserWindow({
+    width: 460,
+    height: 560,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    backgroundColor: '#15161b',
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#15161b', symbolColor: '#a7adba', height: 40 },
+    icon: asset('icon.png'),
+    show: false,
+    webPreferences: { preload: PRELOAD, contextIsolation: true, nodeIntegration: false },
+  });
+  loginWin.loadFile(renderer('login/login.html'));
+  loginWin.once('ready-to-show', () => loginWin.show());
+  loginWin.on('closed', () => { loginWin = null; auth.cancelLogin(); });
+}
+
+// every user-facing entry point funnels through this: signed out -> login window
+function requireAuth() {
+  if (auth.isSignedIn()) return true;
+  openLogin();
+  return false;
+}
+
+let bootBarPending = false; // show the recents bar once the boot session verifies
+
+function broadcastAuthState(state) {
+  for (const win of [loginWin, settingsWin]) {
+    if (win && !win.isDestroyed()) win.webContents.send('auth:state', state);
+  }
+  refreshTray();
+  if (state.status === 'signed-in' && loginWin && !loginWin.isDestroyed()) {
+    loginWin.close();
+  }
+  if (state.status === 'signed-in' && bootBarPending) {
+    bootBarPending = false;
+    setTimeout(showBar, 120);
+  }
+  if (state.status === 'signed-out') {
+    // lock visible surfaces; an in-flight recording is finalized, not discarded
+    if (recording && !recording.finalizing) stopRecording(false);
+    if (capturing) cancelSnip();
+    if (libraryWin && !libraryWin.isDestroyed()) libraryWin.close();
+    if (barWin && !barWin.isDestroyed()) barWin.hide();
+  }
+}
+
+ipcMain.handle('auth:get-state', () => auth.getState());
+ipcMain.handle('auth:login', async () => {
+  try {
+    await auth.beginLogin();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err && err.message) || 'Sign-in failed.' };
+  }
+});
+ipcMain.on('auth:cancel-login', () => auth.cancelLogin());
+ipcMain.on('auth:logout', () => auth.signOut());
 
 /* ---------------- settings window ---------------- */
 
@@ -1121,6 +1197,7 @@ function hotkeyPressed(mode) {
     else stopRecording(false);
     return;
   }
+  if (!requireAuth()) return;
   if (capturing) { setSnipMode(m); return; }
   startSnip(m);
 }
@@ -1212,13 +1289,24 @@ function applyAutoUpdateSetting() {
 function createTray() {
   tray = new Tray(asset('tray.png'));
   const rebuild = () => {
+    const authState = auth.getState();
+    const signedIn = authState.status === 'signed-in';
     const armed = recording && recording.status === 'armed';
-    tray.setToolTip(armed
-      ? 'snippit-good — adjust the area, then press Record'
-      : recording
-        ? 'snippit-good — recording… (press the shortcut to stop)'
-        : 'snippit-good — quick snips');
+    tray.setToolTip(!signedIn
+      ? 'snippit-good — sign in to start capturing'
+      : armed
+        ? 'snippit-good — adjust the area, then press Record'
+        : recording
+          ? 'snippit-good — recording… (press the shortcut to stop)'
+          : 'snippit-good — quick snips');
     const items = [];
+    if (!signedIn) {
+      items.push({ label: 'Sign in with WorkOS…', click: () => openLogin() });
+      items.push({ type: 'separator' });
+    } else if (authState.user && authState.user.email) {
+      items.push({ label: authState.user.email, enabled: false });
+      items.push({ type: 'separator' });
+    }
     if (armed) {
       items.push({ label: 'Start recording', click: () => beginArmedRecording() });
       items.push({ label: 'Cancel', click: () => stopRecording(true) });
@@ -1230,16 +1318,20 @@ function createTray() {
     }
     items.push({
       label: `New snip\t${settings.shortcut}`,
-      enabled: !recording,
+      enabled: signedIn && !recording,
       click: () => { if (!recording) startSnip('image'); },
     });
     items.push({
       label: `New recording${settings.recordShortcut ? `\t${settings.recordShortcut}` : ''}`,
-      enabled: !recording,
+      enabled: signedIn && !recording,
       click: () => { if (!recording) startSnip('video'); },
     });
-    items.push({ label: 'Show recent snips', click: () => { if (library.length) showBar(); } });
-    items.push({ label: 'Library — all captures', click: () => openLibrary() });
+    items.push({
+      label: 'Show recent snips',
+      enabled: signedIn,
+      click: () => { if (auth.isSignedIn() && library.length) showBar(); },
+    });
+    items.push({ label: 'Library — all captures', enabled: signedIn, click: () => openLibrary() });
     items.push({ label: 'Settings…', click: () => openSettings() });
     items.push({ label: 'Check for updates…', click: () => { openSettings(); checkForUpdates(); } });
     if (updateReadyVersion) {
@@ -2002,11 +2094,13 @@ async function runSelfTest() {
       await sleep(1600); // let the REAL window list land first, then override it
       if (overlays.length) {
         const ov = overlays[0].win;
-        ov.webContents.send('overlay:windows',
-          [{ x: 220, y: 160, w: 402, h: 306, title: 'Fake App Window' }]);
+        // near-full-display fake window: the REAL mouse can wander over the
+        // overlay during the test, and any position must still hit the target
+        const fw2 = { x: 40, y: 40, w: dS.bounds.width - 80, h: dS.bounds.height - 80 };
+        ov.webContents.send('overlay:windows', [{ ...fw2, title: 'Fake App Window' }]);
         await sleep(250);
         ov.webContents.sendInputEvent({ type: 'mouseMove', x: 300, y: 220 });
-        await sleep(300);
+        await sleep(200);
         const snapState = await ov.webContents.executeJavaScript(
           `({ selVisible: !document.getElementById('sel').hidden,
               dims: document.getElementById('dims').textContent })`);
@@ -2017,10 +2111,12 @@ async function runSelfTest() {
         await sleep(900);
         const s0 = library[0];
         const grew = library.length === libBefore + 1 && s0 && s0.kind === 'image';
-        const sizeOk = grew && s0.width > 480 && s0.width < 520 && s0.height > 360 && s0.height < 400;
+        const expW = Math.round(fw2.w * dS.scaleFactor);
+        const expH = Math.round(fw2.h * dS.scaleFactor);
+        const sizeOk = grew && Math.abs(s0.width - expW) < 40 && Math.abs(s0.height - expH) < 40;
         console.log(snapState.selVisible && snapState.dims.includes('Fake App') && sizeOk
           ? `SNAP_OK hover highlighted ("${snapState.dims}"), click captured ${s0.width}x${s0.height}`
-          : `SNAP_FAIL hover=${JSON.stringify(snapState)} grew=${grew} size=${s0 ? `${s0.width}x${s0.height}` : 'n/a'}`);
+          : `SNAP_FAIL hover=${JSON.stringify(snapState)} grew=${grew} size=${s0 ? `${s0.width}x${s0.height}` : 'n/a'} expected~${expW}x${expH}`);
       } else {
         console.log('SNAP_SKIP no overlay window');
         capturing = false;
@@ -2042,6 +2138,31 @@ async function runSelfTest() {
       cancelSnip();
       settings.defaultMode = prevDefault;
       await sleep(400);
+    }
+
+    // --- auth gate: signed out must block captures and open the login window ---
+    {
+      auth._setBypass(false); // drop the test bypass -> signed-out
+      await sleep(300);
+      await startSnip('image');
+      await sleep(700);
+      const gateBlocked = !capturing && overlays.length === 0;
+      const loginShown = !!(loginWin && !loginWin.isDestroyed());
+      console.log(gateBlocked && loginShown
+        ? 'AUTH_GATE_OK signed-out capture was blocked and the login window opened'
+        : `AUTH_GATE_FAIL blocked=${gateBlocked} login=${loginShown}`);
+      if (capturing) cancelSnip(); // never leak an overlay out of this block
+      if (loginWin && !loginWin.isDestroyed()) {
+        await new Promise((res) => {
+          if (!loginWin.webContents.isLoading()) res();
+          else loginWin.webContents.once('did-finish-load', res);
+        });
+        await sleep(600);
+        await shoot(loginWin, 'login.png');
+        loginWin.close();
+      }
+      auth._setBypass(true);
+      await sleep(300);
     }
 
     // --- keep-everything: nothing may be trimmed, the bar still shows 3 ---
@@ -2094,6 +2215,14 @@ if (!app.requestSingleInstanceLock()) {
     loadLibrary();
     createBar();
     createTray();
+    // the WorkOS gate: everything capture-related requires a signed-in session
+    auth.init({
+      bypass: SMOKE || SELFTEST, // test runs exercise the gate explicitly instead
+      getClientId: () => process.env.SNIPPIT_WORKOS_CLIENT_ID || settings.workOsClientId || '',
+      onChange: broadcastAuthState,
+    }).then(() => {
+      if (!auth.isSignedIn()) openLogin();
+    });
     initDisplayMediaHandler();
     ensureOverlayPool(); // pre-load overlay windows so the hotkey is instant
     winEnum.warmUp(); // window snapping needs the enumeration helper warm
@@ -2115,7 +2244,8 @@ if (!app.requestSingleInstanceLock()) {
       refreshTray();
     }
     if (library.length) {
-      // bar shows once content has loaded; size arrives via bar:resize
+      // bar shows once content has loaded AND the session is verified
+      bootBarPending = true;
       barWin.webContents.once('did-finish-load', () => setTimeout(showBar, 80));
     }
     if (SMOKE) {
@@ -2147,5 +2277,6 @@ if (!app.requestSingleInstanceLock()) {
     globalShortcut.unregisterAll();
     gdi.dispose();
     winEnum.dispose();
+    auth.dispose();
   });
 }

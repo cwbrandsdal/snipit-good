@@ -115,7 +115,8 @@ main {
 /* microphone device picker */
 .mic-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
 .mic-row label { color: var(--text-faint); font-weight: 600; flex: 0 0 auto; }
-.mic-row select {
+.mic-row select,
+.mic-row input {
   flex: 1;
   min-width: 0;
   background: var(--bg);
@@ -127,7 +128,9 @@ main {
   font-size: 12.5px;
   outline: none;
 }
-.mic-row select:focus { border-color: var(--accent); }
+.mic-row select:focus,
+.mic-row input:focus { border-color: var(--accent); }
+.mic-row input::placeholder { color: var(--text-faint); }
 
 /* segmented pickers (default capture, audio quality) */
 .seg {

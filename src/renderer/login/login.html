@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com" />
+  <title>snippit-good — sign in</title>
+  <link rel="stylesheet" href="login.css" />
+</head>
+<body>
+  <header id="titlebar"></header>
+  <main>
+    <div class="brand big">snippit<span class="dot">-</span>good</div>
+    <p class="lede">Sign in with your <strong>Nivalo&nbsp;/&nbsp;WorkOS</strong> account to use snips and recordings.</p>
+
+    <div id="pane-checking">
+      <div class="spinner"></div>
+      <p class="dim">Checking your session…</p>
+    </div>
+
+    <div id="pane-signin" hidden>
+      <button class="btn-primary big" id="btn-signin">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="m10 17 5-5-5-5"/><path d="M15 12H3"/></svg>
+        Sign in with WorkOS
+      </button>
+      <p class="dim">Your browser opens the company sign-in page — the app unlocks automatically afterwards.</p>
+    </div>
+
+    <div id="pane-waiting" hidden>
+      <div class="spinner"></div>
+      <p class="dim">Waiting for the browser sign-in…<br />Finish logging in, then come back here.</p>
+      <button class="btn-ghost" id="btn-cancel">Cancel</button>
+    </div>
+
+    <div id="pane-unconfigured" hidden>
+      <p class="warn">Sign-in isn't configured yet.</p>
+      <p class="dim">Add your WorkOS <strong>client ID</strong> in Settings → Account (same public client ID the Nivalo console uses).</p>
+      <button class="btn-ghost" id="btn-open-settings">Open settings</button>
+    </div>
+
+    <p id="error" class="error" hidden></p>
+  </main>
+  <footer>Locked until you sign in — the tray menu stays available.</footer>
+  <script src="login.js"></script>
+</body>
+</html>
