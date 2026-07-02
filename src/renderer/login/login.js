@@ -3,7 +3,6 @@ const panes = {
   checking: document.getElementById('pane-checking'),
   signin: document.getElementById('pane-signin'),
   waiting: document.getElementById('pane-waiting'),
-  unconfigured: document.getElementById('pane-unconfigured'),
 };
 const errorEl = document.getElementById('error');
 let waiting = false;
@@ -20,7 +19,6 @@ function setError(message) {
 function paint(state) {
   if (waiting) return; // the in-flight login owns the UI until it settles
   if (!state || state.status === 'unknown') { showPane('checking'); return; }
-  if (!state.configured) { showPane('unconfigured'); return; }
   showPane('signin'); // signed-in state closes this window from main
 }
 
@@ -40,9 +38,6 @@ async function signIn() {
 document.getElementById('btn-signin').addEventListener('click', signIn);
 document.getElementById('btn-cancel').addEventListener('click', () => {
   window.snippit.authCancelLogin();
-});
-document.getElementById('btn-open-settings').addEventListener('click', () => {
-  window.snippit.openSettings();
 });
 
 window.snippit.onAuthState(paint);

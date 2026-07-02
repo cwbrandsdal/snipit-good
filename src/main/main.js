@@ -38,7 +38,6 @@ const DEFAULT_SETTINGS = {
   audioQuality: 'standard', // low | standard | high
   armBeforeRecord: true, // pick a region, adjust it, press Record — vs. record instantly
   saveDir: '', // where captures are written; resolved to Pictures\snippit-good when empty
-  workOsClientId: '', // public AuthKit client ID (same one the Nivalo console uses)
 };
 
 const AUDIO_BITRATES = { low: 64000, standard: 128000, high: 192000 };
@@ -1301,7 +1300,7 @@ function createTray() {
           : 'snippit-good — quick snips');
     const items = [];
     if (!signedIn) {
-      items.push({ label: 'Sign in with WorkOS…', click: () => openLogin() });
+      items.push({ label: 'Sign in with mtnauth.com…', click: () => openLogin() });
       items.push({ type: 'separator' });
     } else if (authState.user && authState.user.email) {
       items.push({ label: authState.user.email, enabled: false });
@@ -2215,10 +2214,9 @@ if (!app.requestSingleInstanceLock()) {
     loadLibrary();
     createBar();
     createTray();
-    // the WorkOS gate: everything capture-related requires a signed-in session
+    // the mtnauth.com gate: everything capture-related requires a signed-in session
     auth.init({
       bypass: SMOKE || SELFTEST, // test runs exercise the gate explicitly instead
-      getClientId: () => process.env.SNIPPIT_WORKOS_CLIENT_ID || settings.workOsClientId || '',
       onChange: broadcastAuthState,
     }).then(() => {
       if (!auth.isSignedIn()) openLogin();

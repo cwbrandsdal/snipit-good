@@ -1,9 +1,9 @@
 'use strict';
-/* WorkOS AuthKit sign-in for the desktop app, matching the Nivalo platform's
-   client-only AuthKit setup (public client ID, PKCE, no backend):
+/* mtnauth.com sign-in (WorkOS AuthKit) for the desktop app — client-only
+   setup: public client ID baked into the app, PKCE, no backend.
 
-   - Sign-in opens the hosted AuthKit page in the SYSTEM browser, so the
-     user's existing WorkOS session (Nivalo & friends) is reused.
+   - Sign-in opens the hosted mtnauth login page in the SYSTEM browser, so an
+     existing company session is reused.
    - The redirect lands on a loopback HTTP listener (RFC 8252 native-app
      flow); the code is exchanged with PKCE — no client secret anywhere.
    - The rotating refresh token is persisted encrypted with Electron
@@ -18,9 +18,13 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { app, shell, safeStorage } = require('electron');
 
+// the mtnauth.com (WorkOS AuthKit) public client ID — shared company
+// environment, baked into the app; env var only exists as an escape hatch
+const CLIENT_ID = process.env.SNIPPIT_WORKOS_CLIENT_ID || 'client_01KDRG1Z0SHPJNYBDXS3CG54GJ';
+
 /* Loopback callback ports, tried in order. 39179 is the redirect URI already
-   whitelisted for this shared WorkOS environment (it's also Jotly's app port,
-   so it can be busy while Jotly runs); 39184 is snippit-good's own — add
+   whitelisted in the environment (it's also Jotly's app port, so it can be
+   busy while Jotly runs); 39184 is snippit-good's own — add
    http://127.0.0.1:39184/auth/callback to the WorkOS dashboard redirects so
    sign-in works independently of Jotly. */
 const AUTH_PORTS = [39179, 39184];
@@ -30,7 +34,7 @@ const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
 const REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const RETRY_INTERVAL_MS = 15 * 60 * 1000;
 
-let opts = { getClientId: () => '', onChange: () => {} };
+let opts = { onChange: () => {} };
 let status = 'unknown'; // unknown (verifying) | signed-in | signed-out
 let user = null;        // { email, firstName, lastName }
 let accessToken = null; // in-memory only; not used for API calls yet
@@ -89,7 +93,6 @@ function getState() {
   return {
     status: bypass ? 'signed-in' : status,
     user: bypass ? { email: 'test-bypass@local', firstName: 'Test' } : user,
-    configured: !!opts.getClientId(),
   };
 }
 
@@ -132,9 +135,8 @@ function applySession(data) {
 
 async function refresh() {
   if (bypass) return true;
-  const clientId = opts.getClientId();
   const stored = loadStored();
-  if (!clientId || !stored || !stored.token) {
+  if (!stored || !stored.token) {
     setStatus('signed-out');
     return false;
   }
@@ -146,7 +148,7 @@ async function refresh() {
   }
   try {
     applySession(await authenticate({
-      client_id: clientId,
+      client_id: CLIENT_ID,
       grant_type: 'refresh_token',
       refresh_token: token,
     }));
@@ -205,10 +207,6 @@ function listenOnFirstFreePort(handler) {
 }
 
 function beginLogin() {
-  const clientId = opts.getClientId();
-  if (!clientId) {
-    return Promise.reject(new Error('No WorkOS client ID is configured — set it in Settings first.'));
-  }
   cancelLogin();
   const verifier = crypto.randomBytes(48).toString('base64url');
   const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
@@ -248,7 +246,7 @@ function beginLogin() {
       }
       try {
         const data = await authenticate({
-          client_id: clientId,
+          client_id: CLIENT_ID,
           grant_type: 'authorization_code',
           code,
           code_verifier: verifier,
@@ -268,7 +266,7 @@ function beginLogin() {
       timer = setTimeout(() => finish(new Error('Sign-in timed out — try again.')), LOGIN_TIMEOUT_MS);
       const u = new URL(`${WORKOS_API}/authorize`);
       u.searchParams.set('response_type', 'code');
-      u.searchParams.set('client_id', clientId);
+      u.searchParams.set('client_id', CLIENT_ID);
       u.searchParams.set('redirect_uri', `http://127.0.0.1:${port}${REDIRECT_PATH}`);
       u.searchParams.set('provider', 'authkit');
       u.searchParams.set('state', nonce);

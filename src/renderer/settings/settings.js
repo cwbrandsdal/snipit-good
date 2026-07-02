@@ -135,7 +135,6 @@ recMicBtn.addEventListener('click', () => apply({ recordMic: !current.recordMic 
 const authStatusEl = document.getElementById('auth-status');
 const authBtn = document.getElementById('btn-auth');
 const authErrorEl = document.getElementById('auth-error');
-const clientIdInput = document.getElementById('workos-client-id');
 let authState = null;
 
 function paintAuth() {
@@ -143,16 +142,13 @@ function paintAuth() {
   authBtn.hidden = false;
   if (authState.status === 'signed-in') {
     const who = (authState.user && authState.user.email) || 'your account';
-    authStatusEl.textContent = `Signed in as ${who}.`;
+    authStatusEl.textContent = `Signed in as ${who} (mtnauth.com).`;
     authBtn.textContent = 'Sign out';
   } else if (authState.status === 'unknown') {
     authStatusEl.textContent = 'Checking session…';
     authBtn.hidden = true;
-  } else if (!authState.configured) {
-    authStatusEl.textContent = 'Add the WorkOS client ID below (same public ID as the Nivalo console), then sign in.';
-    authBtn.textContent = 'Sign in…';
   } else {
-    authStatusEl.textContent = 'Signed out — snips and recordings are locked until you sign in.';
+    authStatusEl.textContent = 'Signed out — snips and recordings are locked until you sign in with mtnauth.com.';
     authBtn.textContent = 'Sign in…';
   }
 }
@@ -171,12 +167,6 @@ authBtn.addEventListener('click', async () => {
     authErrorEl.textContent = res.error || 'Sign-in failed.';
     authErrorEl.className = 'status err';
   }
-  authState = await window.snippit.authGetState();
-  paintAuth();
-});
-
-document.getElementById('btn-save-clientid').addEventListener('click', async () => {
-  await apply({ workOsClientId: clientIdInput.value.trim() });
   authState = await window.snippit.authGetState();
   paintAuth();
 });
@@ -288,7 +278,6 @@ document.getElementById('gh-link').addEventListener('click', (e) => {
 (async function boot() {
   current = await window.snippit.getSettings();
   paint();
-  clientIdInput.value = current.workOsClientId || '';
   authState = await window.snippit.authGetState();
   paintAuth();
   paintUpdate(await window.snippit.getUpdateState());

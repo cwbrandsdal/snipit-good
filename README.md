@@ -30,17 +30,17 @@ npm start
 Icons are generated from `assets/icon-source.png` and committed; after changing the artwork run
 `npm run gen-icon` to regenerate every size (window/tray PNGs + the installer `.ico`).
 
-## Sign-in (WorkOS / Nivalo)
+## Sign-in (mtnauth.com)
 
-The app requires a company sign-in before anything can be captured. It uses the same WorkOS
-AuthKit environment as the Nivalo console and Jotly (one shared user base):
+The app requires an **mtnauth.com** sign-in (WorkOS AuthKit) before anything can be captured:
 
-- **Flow**: native OAuth 2.0 + PKCE (RFC 8252). Sign-in opens the hosted AuthKit page in your
-  default browser (reusing any existing session), redirects to a loopback listener on
+- **Flow**: native OAuth 2.0 + PKCE (RFC 8252). Sign-in opens the hosted mtnauth login page in
+  your default browser (reusing any existing session), redirects to a loopback listener on
   `127.0.0.1`, and the app exchanges the code directly with WorkOS — no client secret, no
   backend.
-- **Config**: the public AuthKit client ID lives in `settings.json` as `workOsClientId`
-  (Settings → Account has a field for it; `SNIPPIT_WORKOS_CLIENT_ID` env var overrides).
+- **Config**: the public client ID is baked into the app (`src/main/auth.js`); the
+  `SNIPPIT_WORKOS_CLIENT_ID` env var exists as an escape hatch. Nothing to configure in
+  settings.
 - **Redirect URIs**: the loopback callback tries `http://127.0.0.1:39179/auth/callback`
   (already whitelisted for this environment) and falls back to
   `http://127.0.0.1:39184/auth/callback` — add that second one in the WorkOS dashboard
@@ -51,7 +51,7 @@ AuthKit environment as the Nivalo console and Jotly (one shared user base):
   verified session keeps working and re-verifies when you're back online; an explicitly
   revoked/expired session signs you out and locks captures until you sign in again.
 - Signed out = locked: shortcuts, the bar, the library and the tray capture items all wait
-  until you sign in (tray → *Sign in with WorkOS…*, or the login window that appears on
+  until you sign in (tray → *Sign in with mtnauth.com…*, or the login window that appears on
   launch). Settings → Account shows who is signed in and has the sign-out button.
 
 ## How it works
