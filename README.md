@@ -27,8 +27,8 @@ npm install
 npm start
 ```
 
-Icons are generated from `assets/icon-source.png` and committed; after changing the artwork run
-`npm run gen-icon` to regenerate every size (window/tray PNGs + the installer `.ico`).
+Icons are generated from `assets/icon-source.svg` and committed; after changing the artwork run
+`npm run gen-icon` to render + round + regenerate every size (window/tray PNGs + the installer `.ico`).
 
 ## Sign-in (mtnauth.com)
 
