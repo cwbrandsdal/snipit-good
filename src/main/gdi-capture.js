@@ -72,7 +72,7 @@ function ensureHelper() {
 function captureVirtualScreen() {
   queue = queue.catch(() => {}).then(async () => {
     await ensureHelper();
-    const file = path.join(os.tmpdir(), `snippit-gdi-${Date.now()}-${process.pid}.png`);
+    const file = path.join(os.tmpdir(), `snipit-gdi-${Date.now()}-${process.pid}.png`);
     helper.stdin.write(`${file}\n`);
     const line = await helper.nextLine();
     if (!line.startsWith('OK ')) {

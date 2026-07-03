@@ -65,7 +65,7 @@ contextBridge.exposeInMainWorld('snippit', {
   authLogout: () => ipcRenderer.send('auth:logout'),
   onAuthState: (cb) => ipcRenderer.on('auth:state', (_e, p) => cb(p)),
 
-  // share links (snippit-good.io)
+  // share links (snipit-good.io)
   shareCreate: (payload) => ipcRenderer.invoke('share:create', payload),
   shareList: () => ipcRenderer.invoke('share:list'),
   shareRevoke: (id) => ipcRenderer.invoke('share:revoke', id),

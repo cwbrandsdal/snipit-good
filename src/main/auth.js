@@ -20,11 +20,11 @@ const { app, shell, safeStorage } = require('electron');
 
 // the mtnauth.com (WorkOS AuthKit) public client ID — shared company
 // environment, baked into the app; env var only exists as an escape hatch
-const CLIENT_ID = process.env.SNIPPIT_WORKOS_CLIENT_ID || 'client_01KDRG1Z0SHPJNYBDXS3CG54GJ';
+const CLIENT_ID = process.env.SNIPIT_WORKOS_CLIENT_ID || 'client_01KDRG1Z0SHPJNYBDXS3CG54GJ';
 
 /* Loopback callback ports, tried in order. 39179 is the redirect URI already
    whitelisted in the environment (it's also Jotly's app port, so it can be
-   busy while Jotly runs); 39184 is snippit-good's own — add
+   busy while Jotly runs); 39184 is snipit-good's own — add
    http://127.0.0.1:39184/auth/callback to the WorkOS dashboard redirects so
    sign-in works independently of Jotly. */
 const AUTH_PORTS = [39179, 39184];
@@ -239,7 +239,7 @@ function beginLogin() {
         res.end(resultPage(title, message, ok));
       };
       if (url.searchParams.get('state') !== nonce) {
-        respond('Sign-in failed', 'State mismatch — go back to snippit-good and try again.', false);
+        respond('Sign-in failed', 'State mismatch — go back to snipit-good and try again.', false);
         finish(new Error('state mismatch'));
         return;
       }
@@ -257,7 +257,7 @@ function beginLogin() {
           code,
           code_verifier: verifier,
         });
-        respond('Signed in', 'You can close this tab and go back to snippit-good.', true);
+        respond('Signed in', 'You can close this tab and go back to snipit-good.', true);
         applySession(data);
         finish(null);
       } catch (err) {

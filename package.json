@@ -1,12 +1,12 @@
 {
-  "name": "snippit-good",
-  "productName": "snippit-good",
+  "name": "snipit-good",
+  "productName": "snipit-good",
   "version": "0.8.0",
   "description": "Lightweight Windows screenshot utility: snip with a shortcut, keep the last three snips in a floating bar, annotate, and copy.",
   "main": "src/main/main.js",
   "repository": {
     "type": "git",
-    "url": "https://github.com/cwbrandsdal/snippit-good.git"
+    "url": "https://github.com/cwbrandsdal/snipit-good.git"
   },
   "scripts": {
     "start": "electron .",
@@ -25,8 +25,8 @@
     "electron-updater": "^6.8.9"
   },
   "build": {
-    "appId": "no.cwb.snippit-good",
-    "productName": "snippit-good",
+    "appId": "no.cwb.snipit-good",
+    "productName": "snipit-good",
     "directories": {
       "output": "dist"
     },
@@ -56,7 +56,7 @@
     "publish": {
       "provider": "github",
       "owner": "cwbrandsdal",
-      "repo": "snippit-good"
+      "repo": "snipit-good"
     }
   }
 }

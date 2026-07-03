@@ -1,4 +1,4 @@
-# snippit-good
+# snipit-good
 
 A lightweight Windows screenshot **and screen-recording** utility built for speed: snip with a
 shortcut, annotate in one click, copy to clipboard and move on. The same overlay records any
@@ -9,8 +9,8 @@ re-edit anything and save edits as new variants.
 ## Install
 
 Grab the latest installer from
-[**Releases**](https://github.com/cwbrandsdal/snippit-good/releases/latest)
-(`snippit-good-Setup-x.y.z.exe`), run it, done — snippit-good starts automatically and lives in
+[**Releases**](https://github.com/cwbrandsdal/snipit-good/releases/latest)
+(`snipit-good-Setup-x.y.z.exe`), run it, done — snipit-good starts automatically and lives in
 the system tray. Press **Ctrl+Shift+S** (configurable) anywhere to snip.
 
 > Windows SmartScreen may warn because the installer is not code-signed (this is a free,
@@ -41,14 +41,14 @@ The app requires an **mtnauth.com** sign-in (WorkOS AuthKit) before anything can
   `127.0.0.1`, and the app exchanges the code directly with WorkOS — no client secret, no
   backend.
 - **Config**: the public client ID is baked into the app (`src/main/auth.js`); the
-  `SNIPPIT_WORKOS_CLIENT_ID` env var exists as an escape hatch. Nothing to configure in
+  `SNIPIT_WORKOS_CLIENT_ID` env var exists as an escape hatch. Nothing to configure in
   settings.
 - **Redirect URIs**: the loopback callback tries `http://127.0.0.1:39179/auth/callback`
   (already whitelisted for this environment) and falls back to
   `http://127.0.0.1:39184/auth/callback` — add that second one in the WorkOS dashboard
   (Redirects) so sign-in also works while Jotly is running.
 - **Session**: the rotating refresh token is stored encrypted with Windows DPAPI
-  (Electron `safeStorage`) in `%APPDATA%/snippit-good/auth.json`, verified at boot and
+  (Electron `safeStorage`) in `%APPDATA%/snipit-good/auth.json`, verified at boot and
   refreshed periodically. Losing the network does **not** lock the tool — a previously
   verified session keeps working and re-verifies when you're back online; an explicitly
   revoked/expired session signs you out and locks captures until you sign in again.
@@ -80,7 +80,7 @@ The app requires an **mtnauth.com** sign-in (WorkOS AuthKit) before anything can
      when the encoder is available, otherwise WebM, and the finished **file is copied to the
      clipboard** so you can paste it straight into chats.
 5. Every capture is **saved permanently** to the storage folder (default
-   `Pictures\snippit-good`, configurable) with a readable name like `snip-20260702-101530.png` —
+   `Pictures\snipit-good`, configurable) with a readable name like `snip-20260702-101530.png` —
    nothing is deleted automatically. The floating bar shows the **last 3** for quick access,
    lingers ~10 seconds, then fades — hover to keep it, or pin it open.
 6. **The library** (click any thumbnail, the bar's clock button, or the tray's *Library*) is one
@@ -96,7 +96,7 @@ The app requires an **mtnauth.com** sign-in (WorkOS AuthKit) before anything can
    untouched, and the variant remembers its annotation ops, so reopening it later lets you keep
    editing (move/remove shapes via undo, add more) as long as the original is still around.
 
-## Share links (snippit-good.io)
+## Share links (snipit-good.io)
 
 Recordings are awkward to email — so every capture can become a **private share link** that
 plays in any browser:
@@ -109,15 +109,15 @@ plays in any browser:
 - **Manage links** in Settings → *Share links*: see views/expiry, copy again, or **revoke**
   (revoking deletes the upload from the server; your local file is untouched).
 
-How it works: the app asks `snippit-good.io` for an upload slot (authenticated with your
+How it works: the app asks `snipit-good.io` for an upload slot (authenticated with your
 mtnauth.com sign-in), uploads the file **directly to cloud storage**, and gets back an
-unguessable link (`snippit-good.io/s/…`, 128-bit random id) served with a noindex viewer page
+unguessable link (`snipit-good.io/s/…`, 128-bit random id) served with a noindex viewer page
 and range-request streaming. Only signed-in users can create links; anyone with the link (and
 the password, if set) can view. Expired, revoked and view-limited shares are deleted from
 storage automatically.
 
 The backend service is not part of this repo, but the endpoint is configurable: set
-`SNIPPIT_SHARE_API` to point the app at any compatible self-hosted service. Everything else in
+`SNIPIT_SHARE_API` to point the app at any compatible self-hosted service. Everything else in
 the app works fully without it.
 
 ## Settings
@@ -138,11 +138,11 @@ Open from the bar's gear icon or the tray menu:
 - **Record microphone** — recordings start with the mic live; even when off, the recording
   bar's mic button can bring it in mid-recording.
 - **Audio quality** — Low 64 / Standard 128 / High 192 kbps for the recorded audio track.
-- **Storage folder** — where all captures are written (default `Pictures\snippit-good`).
+- **Storage folder** — where all captures are written (default `Pictures\snipit-good`).
   Changing it affects new captures; existing ones stay where they are and remain in the library.
 
-Settings persist in `%APPDATA%/snippit-good/settings.json`, the library index in
-`%APPDATA%/snippit-good/library.json`, thumbnails in `%APPDATA%/snippit-good/thumbs/`.
+Settings persist in `%APPDATA%/snipit-good/settings.json`, the library index in
+`%APPDATA%/snipit-good/library.json`, thumbnails in `%APPDATA%/snipit-good/thumbs/`.
 Recordings auto-stop after 30 minutes as a disk-space guard.
 
 ## Editor shortcuts
@@ -161,7 +161,7 @@ Recordings auto-stop after 30 minutes as a disk-space guard.
 ```
 src/
   main/main.js          app lifecycle, capture/recording orchestration, tray, shortcuts, library
-  main/share.js         share-link uploads: initiate on snippit-good.io, PUT to storage, list/revoke
+  main/share.js         share-link uploads: initiate on snipit-good.io, PUT to storage, list/revoke
   main/win-enum.js      PowerShell Win32 helper: app-window bounds for click-a-window snapping
   preload/preload.js    contextBridge IPC surface
   renderer/

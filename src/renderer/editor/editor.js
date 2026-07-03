@@ -1,5 +1,5 @@
 'use strict';
-/* snippit-good library window: a scrollable history of every capture on the
+/* snipit-good library window: a scrollable history of every capture on the
    left; images open in the annotation editor (vector op-list over a base
    image — undo/redo just moves the op stack), recordings open in a playback
    pane. Edits can be saved back to the library as re-editable variants. */

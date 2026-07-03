@@ -38,7 +38,7 @@ const DEFAULT_SETTINGS = {
   micDeviceId: '',   // chosen input device; '' = system default
   audioQuality: 'standard', // low | standard | high
   armBeforeRecord: true, // pick a region, adjust it, press Record — vs. record instantly
-  saveDir: '', // where captures are written; resolved to Pictures\snippit-good when empty
+  saveDir: '', // where captures are written; resolved to Pictures\snipit-good when empty
 };
 
 const AUDIO_BITRATES = { low: 64000, standard: 128000, high: 192000 };
@@ -81,7 +81,42 @@ function saveSettings() {
 }
 
 function defaultSaveDir() {
-  return path.join(app.getPath('pictures'), 'snippit-good');
+  return path.join(app.getPath('pictures'), 'snipit-good');
+}
+
+/* One-time migration from the pre-rename app name (snippit-good -> snipit-good):
+   the renamed app gets a fresh %APPDATA%/snipit-good, so copy the settings,
+   library index, saved session and thumbnails over on first launch. Capture
+   files are referenced by absolute path in library.json and are left in place,
+   so the whole history keeps working. Runs only for the real installed app. */
+function migrateLegacyUserData() {
+  try {
+    const cur = app.getPath('userData');
+    if (path.basename(cur).toLowerCase() !== 'snipit-good') return;
+    // already initialised in the new location — never clobber
+    if (fs.existsSync(path.join(cur, 'library.json')) || fs.existsSync(settingsFile())) return;
+    const legacy = path.join(path.dirname(cur), 'snippit-good');
+    if (legacy === cur || !fs.existsSync(legacy)) return;
+    fs.mkdirSync(cur, { recursive: true });
+    for (const name of ['settings.json', 'library.json', 'auth.json']) {
+      const src = path.join(legacy, name);
+      const dst = path.join(cur, name);
+      try { if (fs.existsSync(src) && !fs.existsSync(dst)) fs.copyFileSync(src, dst); } catch {}
+    }
+    const srcThumbs = path.join(legacy, 'thumbs');
+    const dstThumbs = path.join(cur, 'thumbs');
+    if (fs.existsSync(srcThumbs) && !fs.existsSync(dstThumbs)) {
+      try {
+        fs.mkdirSync(dstThumbs, { recursive: true });
+        for (const f of fs.readdirSync(srcThumbs)) {
+          try { fs.copyFileSync(path.join(srcThumbs, f), path.join(dstThumbs, f)); } catch {}
+        }
+      } catch {}
+    }
+    console.log('migrated user data from the previous app name (snippit-good)');
+  } catch (err) {
+    console.error('legacy user-data migration failed:', err.message);
+  }
 }
 
 // capture destination; falls back to the default when the chosen folder is
@@ -1258,7 +1293,7 @@ function initUpdater() {
     updateReadyVersion = info.version;
     setUpdateState({ status: 'ready', version: info.version, progress: 100 });
     if (tray && tray.rebuildMenu) tray.rebuildMenu();
-    tray?.setToolTip(`snippit-good — update v${info.version} ready, restart to apply`);
+    tray?.setToolTip(`snipit-good — update v${info.version} ready, restart to apply`);
   });
   updater.on('error', (err) => {
     console.error('auto-update:', err.message);
@@ -1293,12 +1328,12 @@ function createTray() {
     const signedIn = authState.status === 'signed-in';
     const armed = recording && recording.status === 'armed';
     tray.setToolTip(!signedIn
-      ? 'snippit-good — sign in to start capturing'
+      ? 'snipit-good — sign in to start capturing'
       : armed
-        ? 'snippit-good — adjust the area, then press Record'
+        ? 'snipit-good — adjust the area, then press Record'
         : recording
-          ? 'snippit-good — recording… (press the shortcut to stop)'
-          : 'snippit-good — quick snips');
+          ? 'snipit-good — recording… (press the shortcut to stop)'
+          : 'snipit-good — quick snips');
     const items = [];
     if (!signedIn) {
       items.push({ label: 'Sign in with mtnauth.com…', click: () => openLogin() });
@@ -1342,7 +1377,7 @@ function createTray() {
       });
     }
     items.push({ type: 'separator' });
-    items.push({ label: 'Quit snippit-good', click: () => { quitting = true; app.quit(); } });
+    items.push({ label: 'Quit snipit-good', click: () => { quitting = true; app.quit(); } });
     tray.setContextMenu(Menu.buildFromTemplate(items));
   };
   rebuild();
@@ -1503,7 +1538,7 @@ ipcMain.handle('video:save', async (e, id) => {
   } catch { return false; }
 });
 
-/* --- share links (snippit-good.io) --- */
+/* --- share links (snipit-good.io) --- */
 
 /* Uploads a capture and puts the share URL on the clipboard. Accepts either
    { id } (a library item's file, used for videos and quick shares) or
@@ -1517,7 +1552,7 @@ async function createShareFromPayload(payload, sender) {
   if (p.dataUrl) {
     const img = nativeImage.createFromDataURL(String(p.dataUrl));
     if (img.isEmpty()) return { ok: false, error: 'Nothing to share.' };
-    tempFile = path.join(app.getPath('temp'), `snippit-share-${Date.now()}.png`);
+    tempFile = path.join(app.getPath('temp'), `snipit-share-${Date.now()}.png`);
     try { fs.writeFileSync(tempFile, img.toPNG()); } catch (err) {
       return { ok: false, error: `Could not stage the image (${err.message}).` };
     }
@@ -1620,7 +1655,7 @@ ipcMain.handle('update:get-state', () => ({
 ipcMain.on('update:check', () => checkForUpdates());
 ipcMain.on('update:install', () => { if (updateReadyVersion && app.applyUpdate) app.applyUpdate(); });
 ipcMain.on('open-releases-page', () =>
-  shell.openExternal('https://github.com/cwbrandsdal/snippit-good/releases'));
+  shell.openExternal('https://github.com/cwbrandsdal/snipit-good/releases'));
 ipcMain.handle('settings:set', (_e, patch) => {
   const next = { ...settings, ...patch };
   const shortcutsChanged = next.shortcut !== settings.shortcut
@@ -2170,8 +2205,8 @@ async function runSelfTest() {
       });
       await new Promise((r) => srv.listen(0, '127.0.0.1', r));
       mock.base = `http://127.0.0.1:${srv.address().port}`;
-      const prevApi = process.env.SNIPPIT_SHARE_API;
-      process.env.SNIPPIT_SHARE_API = mock.base;
+      const prevApi = process.env.SNIPIT_SHARE_API;
+      process.env.SNIPIT_SHARE_API = mock.base;
       try {
         const target = library.find((it) => it.kind === 'video' && fs.existsSync(it.file)) || library[0];
         const res = await createShareFromPayload({ id: target.id, expiresInDays: 7 }, null);
@@ -2188,8 +2223,8 @@ async function runSelfTest() {
       } catch (err) {
         console.log(`SHARE_FAIL ${err.message}`);
       }
-      if (prevApi === undefined) delete process.env.SNIPPIT_SHARE_API;
-      else process.env.SNIPPIT_SHARE_API = prevApi;
+      if (prevApi === undefined) delete process.env.SNIPIT_SHARE_API;
+      else process.env.SNIPIT_SHARE_API = prevApi;
       srv.close();
     }
 
@@ -2322,7 +2357,7 @@ async function runSelfTest() {
 // dev/test runs get their own profile: they must not fight the installed
 // app's single-instance lock or pollute its settings and snips
 if (SMOKE || SELFTEST) {
-  app.setPath('userData', path.join(require('node:os').tmpdir(), 'snippit-good-test-profile'));
+  app.setPath('userData', path.join(require('node:os').tmpdir(), 'snipit-good-test-profile'));
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -2331,7 +2366,8 @@ if (!app.requestSingleInstanceLock()) {
   app.on('second-instance', () => hotkeyPressed('default'));
 
   app.whenReady().then(() => {
-    app.setAppUserModelId('no.cwb.snippit-good');
+    app.setAppUserModelId('no.cwb.snipit-good');
+    migrateLegacyUserData();
     loadSettings();
     // test runs must never write captures into the user's real library folder
     if (SMOKE || SELFTEST) settings.saveDir = path.join(app.getPath('userData'), 'library');

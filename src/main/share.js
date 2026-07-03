@@ -1,6 +1,6 @@
 'use strict';
-/* Share-link uploads for snippit-good — talks to the snippit-share API
-   (https://snippit-good.io by default; SNIPPIT_SHARE_API overrides, so the
+/* Share-link uploads for snipit-good — talks to the snipit-share API
+   (https://snipit-good.io by default; SNIPIT_SHARE_API overrides, so the
    open-source app can point at any compatible self-hosted service).
 
    The API never touches file bytes: it hands back a short-lived Azure Blob
@@ -13,7 +13,7 @@ const path = require('node:path');
 const auth = require('./auth');
 
 // read lazily so tests can point at a mock service after startup
-const apiBase = () => (process.env.SNIPPIT_SHARE_API || 'https://snippit-good.io').replace(/\/+$/, '');
+const apiBase = () => (process.env.SNIPIT_SHARE_API || 'https://snipit-good.io').replace(/\/+$/, '');
 
 const CONTENT_TYPES = {
   '.mp4': 'video/mp4',
