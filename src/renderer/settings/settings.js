@@ -171,7 +171,87 @@ authBtn.addEventListener('click', async () => {
   paintAuth();
 });
 
-window.snippit.onAuthState((s) => { authState = s; paintAuth(); });
+window.snippit.onAuthState((s) => { authState = s; paintAuth(); loadShares(); });
+
+/* --- share links --- */
+
+const shareListEl = document.getElementById('share-list');
+const shareStatusEl = document.getElementById('share-status');
+
+function fmtShareMeta(s) {
+  const bits = [];
+  if (s.status === 'active') {
+    bits.push(`${s.viewCount} view${s.viewCount === 1 ? '' : 's'}${s.maxViews ? ` of ${s.maxViews}` : ''}`);
+    if (s.expiresAt) bits.push(`expires ${new Date(s.expiresAt).toLocaleDateString()}`);
+    if (s.hasPassword) bits.push('password');
+  } else {
+    bits.push(s.status);
+  }
+  return bits.join(' · ');
+}
+
+async function loadShares() {
+  shareStatusEl.textContent = '';
+  shareStatusEl.className = 'status';
+  const res = await window.snippit.shareList();
+  shareListEl.replaceChildren();
+  if (!res.ok) {
+    shareStatusEl.textContent = res.error || 'Could not load your share links.';
+    shareStatusEl.className = 'status err';
+    return;
+  }
+  const shares = res.shares.filter((s) => s.status !== 'pending');
+  if (!shares.length) {
+    const empty = document.createElement('p');
+    empty.className = 'share-empty';
+    empty.textContent = 'No share links yet — use “Share link” on a capture in the library or the bar.';
+    shareListEl.appendChild(empty);
+    return;
+  }
+  for (const s of shares) {
+    const row = document.createElement('div');
+    row.className = `share-row${s.status !== 'active' ? ' dead' : ''}`;
+
+    const info = document.createElement('div');
+    info.className = 'share-info';
+    const name = document.createElement('div');
+    name.className = 'share-name';
+    name.textContent = s.fileName;
+    name.title = s.url;
+    const meta = document.createElement('div');
+    meta.className = 'share-meta';
+    meta.textContent = fmtShareMeta(s);
+    info.append(name, meta);
+    row.appendChild(info);
+
+    if (s.status === 'active') {
+      const copy = document.createElement('button');
+      copy.className = 'btn-ghost small';
+      copy.textContent = 'Copy';
+      copy.addEventListener('click', async () => {
+        await window.snippit.shareCopyLink(s.url);
+        copy.textContent = 'Copied ✓';
+        setTimeout(() => { copy.textContent = 'Copy'; }, 1500);
+      });
+      const revoke = document.createElement('button');
+      revoke.className = 'btn-ghost small danger';
+      revoke.textContent = 'Revoke';
+      revoke.addEventListener('click', async () => {
+        if (!confirm(`Revoke this share link? Anyone with the link loses access and the upload is deleted.\n\n${s.fileName}`)) return;
+        const r = await window.snippit.shareRevoke(s.id);
+        if (!r.ok) {
+          shareStatusEl.textContent = r.error || 'Revoke failed.';
+          shareStatusEl.className = 'status err';
+        }
+        loadShares();
+      });
+      row.append(copy, revoke);
+    }
+    shareListEl.appendChild(row);
+  }
+}
+
+document.getElementById('btn-shares-refresh').addEventListener('click', loadShares);
 
 /* --- microphone device picker --- */
 
@@ -282,4 +362,5 @@ document.getElementById('gh-link').addEventListener('click', (e) => {
   paintAuth();
   paintUpdate(await window.snippit.getUpdateState());
   loadMicDevices();
+  loadShares();
 })();

@@ -524,6 +524,10 @@ document.getElementById('btn-save').addEventListener('click', saveImage);
 /* keyboard */
 window.addEventListener('keydown', (e) => {
   if (activeText) return;
+  if (!shareModal.hidden) {
+    if (e.key === 'Escape') closeShareDialog();
+    return; // the dialog owns the keyboard while open
+  }
   const k = e.key.toLowerCase();
   if (document.body.classList.contains('mode-video')) {
     // playback pane: Ctrl+C copies the video file
@@ -753,6 +757,86 @@ async function refreshList(keepSelection = true) {
   renderList();
   if (!stillThere) await selectItem(items[0].id, { force: true });
 }
+
+/* ---------------- share links ---------------- */
+
+const shareModal = document.getElementById('share-modal');
+const shareGo = document.getElementById('share-go');
+const shareErr = document.getElementById('share-error');
+const shareResult = document.getElementById('share-result');
+const shareUrlEl = document.getElementById('share-url');
+const shareProgress = document.getElementById('share-progress');
+const shareFill = document.getElementById('share-progress-fill');
+let shareBusy = false;
+
+function openShareDialog() {
+  if (!currentId) return;
+  shareBusy = false;
+  shareErr.hidden = true;
+  shareResult.hidden = true;
+  shareProgress.hidden = true;
+  shareFill.style.width = '0%';
+  shareGo.disabled = false;
+  shareGo.hidden = false;
+  document.getElementById('share-expiry').value = '30';
+  document.getElementById('share-password').value = '';
+  document.getElementById('share-maxviews').value = '';
+  shareModal.hidden = false;
+}
+
+function closeShareDialog() {
+  if (!shareBusy) shareModal.hidden = true;
+}
+
+document.getElementById('share-cancel').addEventListener('click', closeShareDialog);
+shareModal.addEventListener('click', (e) => { if (e.target === shareModal) closeShareDialog(); });
+
+shareGo.addEventListener('click', async () => {
+  if (shareBusy) return;
+  shareBusy = true;
+  shareGo.disabled = true;
+  shareErr.hidden = true;
+  shareProgress.hidden = false;
+  shareFill.style.width = '0%';
+
+  const expiry = document.getElementById('share-expiry').value;
+  const payload = {
+    expiresInDays: expiry ? Number(expiry) : null,
+    password: document.getElementById('share-password').value || null,
+    maxViews: Number(document.getElementById('share-maxviews').value) || null,
+  };
+  if (document.body.classList.contains('mode-video')) {
+    payload.id = currentId; // the recording file uploads as-is
+  } else {
+    // images share the canvas as rendered, annotations included
+    commitText();
+    state.tempOp = null;
+    render();
+    payload.dataUrl = canvas.toDataURL('image/png');
+    payload.fileName = `${((state.snip && state.snip.fileName) || 'snip.png').replace(/\.[^.]+$/, '')}.png`;
+  }
+
+  const res = await window.snippit.shareCreate(payload);
+  shareBusy = false;
+  shareProgress.hidden = true;
+  if (res.ok) {
+    shareGo.hidden = true;
+    shareResult.hidden = false;
+    shareUrlEl.value = res.url;
+    showToast('Share link copied');
+  } else {
+    shareGo.disabled = false;
+    shareErr.hidden = false;
+    shareErr.textContent = res.error || 'Share failed.';
+  }
+});
+
+window.snippit.onShareProgress(({ pct }) => {
+  if (!shareModal.hidden) shareFill.style.width = `${pct}%`;
+});
+shareUrlEl.addEventListener('click', () => shareUrlEl.select());
+document.getElementById('btn-vshare').addEventListener('click', openShareDialog);
+document.getElementById('btn-share').addEventListener('click', openShareDialog);
 
 /* video pane actions */
 document.getElementById('btn-vcopy').addEventListener('click', async () => {

@@ -34,6 +34,8 @@ Icons are generated from `assets/icon-source.png` and committed; after changing 
 
 The app requires an **mtnauth.com** sign-in (WorkOS AuthKit) before anything can be captured:
 
+- **Create an account**: register at [MTN Auth](https://mtnauth.com) before launching the app.
+  Use that same account when the hosted sign-in page opens.
 - **Flow**: native OAuth 2.0 + PKCE (RFC 8252). Sign-in opens the hosted mtnauth login page in
   your default browser (reusing any existing session), redirects to a loopback listener on
   `127.0.0.1`, and the app exchanges the code directly with WorkOS — no client secret, no
@@ -94,6 +96,30 @@ The app requires an **mtnauth.com** sign-in (WorkOS AuthKit) before anything can
    untouched, and the variant remembers its annotation ops, so reopening it later lets you keep
    editing (move/remove shapes via undo, add more) as long as the original is still around.
 
+## Share links (snippit-good.io)
+
+Recordings are awkward to email — so every capture can become a **private share link** that
+plays in any browser:
+
+- **From the bar**: the link icon on a capture uploads it with default options (30-day link)
+  and puts the URL straight on your clipboard.
+- **From the library**: **Share link** (on the video player, or in the image toolbar — images
+  upload with your annotations baked in) opens a dialog with the full options: expiry
+  (1/7/30 days or never), an optional **password**, and an optional **burn after N views**.
+- **Manage links** in Settings → *Share links*: see views/expiry, copy again, or **revoke**
+  (revoking deletes the upload from the server; your local file is untouched).
+
+How it works: the app asks `snippit-good.io` for an upload slot (authenticated with your
+mtnauth.com sign-in), uploads the file **directly to cloud storage**, and gets back an
+unguessable link (`snippit-good.io/s/…`, 128-bit random id) served with a noindex viewer page
+and range-request streaming. Only signed-in users can create links; anyone with the link (and
+the password, if set) can view. Expired, revoked and view-limited shares are deleted from
+storage automatically.
+
+The backend service is not part of this repo, but the endpoint is configurable: set
+`SNIPPIT_SHARE_API` to point the app at any compatible self-hosted service. Everything else in
+the app works fully without it.
+
 ## Settings
 
 Open from the bar's gear icon or the tray menu:
@@ -135,6 +161,7 @@ Recordings auto-stop after 30 minutes as a disk-space guard.
 ```
 src/
   main/main.js          app lifecycle, capture/recording orchestration, tray, shortcuts, library
+  main/share.js         share-link uploads: initiate on snippit-good.io, PUT to storage, list/revoke
   main/win-enum.js      PowerShell Win32 helper: app-window bounds for click-a-window snapping
   preload/preload.js    contextBridge IPC surface
   renderer/

@@ -37,7 +37,7 @@ const RETRY_INTERVAL_MS = 15 * 60 * 1000;
 let opts = { onChange: () => {} };
 let status = 'unknown'; // unknown (verifying) | signed-in | signed-out
 let user = null;        // { email, firstName, lastName }
-let accessToken = null; // in-memory only; not used for API calls yet
+let accessToken = null; // in-memory only; consumed by share.js for API calls
 let bypass = false;     // test runs skip auth entirely
 let activeLogin = null; // { cancel }
 let refreshTimer = null;
@@ -98,6 +98,12 @@ function getState() {
 
 function isSignedIn() {
   return bypass || status === 'signed-in';
+}
+
+// current WorkOS access token (null when signed out / bypassed); short-lived —
+// callers should refresh() and retry once on a 401
+function getAccessToken() {
+  return accessToken;
 }
 
 /* ---------------- WorkOS user-management api ---------------- */
@@ -319,5 +325,5 @@ function _setBypass(v) {
 
 module.exports = {
   init, refresh, beginLogin, cancelLogin, signOut,
-  isSignedIn, getState, dispose, _setBypass,
+  isSignedIn, getState, getAccessToken, dispose, _setBypass,
 };

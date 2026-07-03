@@ -62,6 +62,7 @@ const ICONS = {
   copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
   del: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6"/></svg>',
   play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v13.72L19 12z"/></svg>',
+  share: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
 };
 
 function fmtDuration(ms) {
@@ -69,12 +70,19 @@ function fmtDuration(ms) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-function showChip(text) {
+function showChip(text, sticky = false) {
   chipText.textContent = text;
   chip.hidden = false;
   clearTimeout(chipTimer);
-  chipTimer = setTimeout(() => { chip.hidden = true; }, 1400);
+  if (!sticky) chipTimer = setTimeout(() => { chip.hidden = true; }, 1400);
 }
+
+// live upload progress for a quick share started from this bar
+window.snippit.onShareProgress(({ pct }) => {
+  if (!chip.hidden && chipText.textContent.startsWith('Uploading')) {
+    chipText.textContent = `Uploading ${pct}%`;
+  }
+});
 
 function render({ snips, shortcut, pinBar, event }) {
   shortcutHint.textContent = shortcut || '';
@@ -133,6 +141,14 @@ function render({ snips, shortcut, pinBar, event }) {
       : mkBtn('edit', 'Edit', '', open));
     actions.appendChild(mkBtn('copy', isVideo ? 'Copy file to clipboard' : 'Copy to clipboard', '', async () => {
       if (await window.snippit.copySnip(snip.id)) showChip('Copied');
+    }));
+    // quick share: default options (30-day link), URL lands on the clipboard
+    actions.appendChild(mkBtn('share', 'Upload & copy a share link', '', async () => {
+      cancelAutoHide();
+      showChip('Uploading…', true);
+      const res = await window.snippit.shareCreate({ id: snip.id, expiresInDays: 30 });
+      showChip(res.ok ? 'Share link copied' : String(res.error || 'Share failed').slice(0, 60));
+      armAutoHide(AUTO_HIDE_MS);
     }));
     actions.appendChild(mkBtn('del', 'Delete from history (removes the file)', 'del', () => window.snippit.removeSnip(snip.id)));
     card.appendChild(actions);

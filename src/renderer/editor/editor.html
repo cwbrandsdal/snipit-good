@@ -31,7 +31,11 @@
     <footer id="video-bar">
       <span id="video-meta" class="dims"></span>
       <span class="flex-spacer"></span>
-      <button class="btn-primary" id="btn-vcopy" title="Copy the video file — paste it into chats or folders">
+      <button class="btn-primary" id="btn-vshare" title="Upload the recording and copy a share link">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        Share link
+      </button>
+      <button class="btn-ghost" id="btn-vcopy" title="Copy the video file — paste it into chats or folders">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
         Copy file
       </button>
@@ -119,6 +123,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>
       Save to library
     </button>
+    <button class="btn-ghost" id="btn-share" title="Upload this image (with annotations) and copy a share link">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+      Share link
+    </button>
     <button class="btn-primary" id="btn-copy">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
       Copy to clipboard
@@ -157,6 +165,38 @@
     <label class="custom-color">Custom <input type="color" id="color-input" /></label>
   </div>
   <div id="width-pop" class="popover" hidden></div>
+
+  <div id="share-modal" class="share-modal" hidden>
+    <div class="share-card">
+      <h2>Create share link</h2>
+      <div class="share-fields">
+        <label>Link expires
+          <select id="share-expiry">
+            <option value="1">After 1 day</option>
+            <option value="7">After 7 days</option>
+            <option value="30" selected>After 30 days</option>
+            <option value="">Never</option>
+          </select>
+        </label>
+        <label>Password <span class="opt">(optional)</span>
+          <input type="text" id="share-password" placeholder="No password" autocomplete="off" spellcheck="false">
+        </label>
+        <label>Burn after views <span class="opt">(optional)</span>
+          <input type="number" id="share-maxviews" min="1" max="1000" placeholder="Unlimited">
+        </label>
+      </div>
+      <div id="share-progress" class="share-progress" hidden><div id="share-progress-fill"></div></div>
+      <div id="share-result" class="share-result" hidden>
+        <input type="text" id="share-url" readonly>
+        <span class="share-copied">Link copied to clipboard ✓</span>
+      </div>
+      <div id="share-error" class="share-error" hidden></div>
+      <div class="share-actions">
+        <button class="btn-ghost" id="share-cancel">Close</button>
+        <button class="btn-primary" id="share-go">Create link</button>
+      </div>
+    </div>
+  </div>
 
   <div id="toast" class="toast"><span class="tick">✓</span><span id="toast-text"></span></div>
 

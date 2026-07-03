@@ -11,6 +11,7 @@ const {
 const gdi = require('./gdi-capture');
 const winEnum = require('./win-enum');
 const auth = require('./auth');
+const share = require('./share');
 
 const SMOKE = process.argv.includes('--smoke');
 const UPDATE_CHECK_INTERVAL = 4 * 60 * 60 * 1000; // every 4 hours
@@ -1502,6 +1503,77 @@ ipcMain.handle('video:save', async (e, id) => {
   } catch { return false; }
 });
 
+/* --- share links (snippit-good.io) --- */
+
+/* Uploads a capture and puts the share URL on the clipboard. Accepts either
+   { id } (a library item's file, used for videos and quick shares) or
+   { dataUrl, fileName } (the editor's annotated canvas). */
+async function createShareFromPayload(payload, sender) {
+  if (!auth.isSignedIn()) return { ok: false, error: 'Sign in with mtnauth.com first.' };
+  const p = payload || {};
+  let filePath;
+  let fileName;
+  let tempFile = null;
+  if (p.dataUrl) {
+    const img = nativeImage.createFromDataURL(String(p.dataUrl));
+    if (img.isEmpty()) return { ok: false, error: 'Nothing to share.' };
+    tempFile = path.join(app.getPath('temp'), `snippit-share-${Date.now()}.png`);
+    try { fs.writeFileSync(tempFile, img.toPNG()); } catch (err) {
+      return { ok: false, error: `Could not stage the image (${err.message}).` };
+    }
+    filePath = tempFile;
+    fileName = String(p.fileName || 'snip.png');
+  } else {
+    const it = library.find((s) => s.id === p.id);
+    if (!it || !fs.existsSync(it.file)) return { ok: false, error: 'That capture is no longer on disk.' };
+    filePath = it.file;
+    fileName = path.basename(it.file);
+  }
+  try {
+    let lastPct = -1;
+    const result = await share.createShare({
+      filePath,
+      fileName,
+      expiresInDays: Number(p.expiresInDays) || null,
+      password: typeof p.password === 'string' && p.password ? p.password : null,
+      maxViews: Number(p.maxViews) || null,
+    }, (frac) => {
+      const pct = Math.round(frac * 100);
+      if (pct === lastPct) return;
+      lastPct = pct;
+      if (sender && !sender.isDestroyed()) sender.send('share:progress', { pct });
+    });
+    clipboard.writeText(result.url);
+    return { ok: true, url: result.url, share: result.share };
+  } catch (err) {
+    return { ok: false, error: err.message || 'Share failed.' };
+  } finally {
+    if (tempFile) { try { fs.unlinkSync(tempFile); } catch {} }
+  }
+}
+
+ipcMain.handle('share:create', (e, payload) => createShareFromPayload(payload, e.sender));
+
+ipcMain.handle('share:list', async () => {
+  if (!auth.isSignedIn()) return { ok: false, error: 'Sign in to see your share links.' };
+  try { return { ok: true, shares: await share.listShares() }; }
+  catch (err) { return { ok: false, error: err.message }; }
+});
+
+ipcMain.handle('share:revoke', async (_e, id) => {
+  if (!auth.isSignedIn()) return { ok: false, error: 'Sign in first.' };
+  try { await share.revokeShare(String(id)); return { ok: true }; }
+  catch (err) { return { ok: false, error: err.message }; }
+});
+
+ipcMain.handle('share:copy-link', (_e, url) => {
+  if (typeof url === 'string' && /^https?:\/\//.test(url)) {
+    clipboard.writeText(url);
+    return true;
+  }
+  return false;
+});
+
 /* --- storage folder --- */
 
 ipcMain.handle('settings:pick-folder', async (e) => {
@@ -2067,6 +2139,58 @@ async function runSelfTest() {
         if (recording) stopRecording(true);
       }
       settings.armBeforeRecord = prevArm;
+    }
+
+    // --- share link: initiate -> direct PUT -> complete, against a mock API ---
+    {
+      const mock = { created: null, uploadedBytes: -1, completed: false, base: '' };
+      const srv = require('node:http').createServer((req, res) => {
+        if (req.method === 'POST' && req.url === '/api/shares') {
+          let b = '';
+          req.on('data', (c) => { b += c; });
+          req.on('end', () => {
+            try { mock.created = JSON.parse(b); } catch { mock.created = null; }
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({
+              id: 'selftestselftestselft1',
+              shareUrl: `${mock.base}/s/selftestselftestselft1`,
+              uploadUrl: `${mock.base}/blob/selftest.bin`,
+              uploadHeaders: { 'x-ms-blob-type': 'BlockBlob' },
+            }));
+          });
+        } else if (req.method === 'PUT' && req.url === '/blob/selftest.bin') {
+          let n = 0;
+          req.on('data', (c) => { n += c.length; });
+          req.on('end', () => { mock.uploadedBytes = n; res.statusCode = 201; res.end(); });
+        } else if (req.method === 'POST' && req.url === '/api/shares/selftestselftestselft1/complete') {
+          mock.completed = true;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ id: 'selftestselftestselft1', status: 'active', viewCount: 0 }));
+        } else { res.statusCode = 404; res.end(); }
+      });
+      await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+      mock.base = `http://127.0.0.1:${srv.address().port}`;
+      const prevApi = process.env.SNIPPIT_SHARE_API;
+      process.env.SNIPPIT_SHARE_API = mock.base;
+      try {
+        const target = library.find((it) => it.kind === 'video' && fs.existsSync(it.file)) || library[0];
+        const res = await createShareFromPayload({ id: target.id, expiresInDays: 7 }, null);
+        const wantBytes = fs.statSync(target.file).size;
+        const clipOk = clipboard.readText() === (res.url || '');
+        const declaredOk = !!mock.created && mock.created.size === wantBytes
+          && mock.created.expiresInDays === 7;
+        console.log(res.ok && mock.completed && mock.uploadedBytes === wantBytes && clipOk && declaredOk
+          ? `SHARE_OK ${target.kind} uploaded ${mock.uploadedBytes} bytes, link on clipboard`
+          : `SHARE_FAIL ${JSON.stringify({
+            ok: res.ok, error: res.error, bytes: mock.uploadedBytes, wantBytes,
+            completed: mock.completed, clipOk, declaredOk,
+          })}`);
+      } catch (err) {
+        console.log(`SHARE_FAIL ${err.message}`);
+      }
+      if (prevApi === undefined) delete process.env.SNIPPIT_SHARE_API;
+      else process.env.SNIPPIT_SHARE_API = prevApi;
+      srv.close();
     }
 
     // --- window snapping: enumeration + click-a-window capture ---
