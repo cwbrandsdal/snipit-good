@@ -6,6 +6,7 @@ const { spawn } = require('node:child_process');
 const {
   app, BrowserWindow, globalShortcut, screen, desktopCapturer,
   clipboard, nativeImage, Tray, Menu, ipcMain, dialog, shell, session,
+  powerMonitor,
 } = require('electron');
 
 const gdi = require('./gdi-capture');
@@ -52,6 +53,7 @@ let settings = { ...DEFAULT_SETTINGS };
 let library = [];
 let tray = null;
 let barWin = null;
+let barHeight = 120; // last content height reported by the bar renderer
 let settingsWin = null;
 let libraryWin = null; // singleton editor/library window
 let overlays = []; // { win, display, image }
@@ -207,10 +209,27 @@ function createBar() {
   barWin.setContentProtection(true); // keep the bar out of captured snips
   barWin.loadFile(renderer('bar/bar.html'));
   barWin.webContents.on('did-finish-load', () => pushSnipsToBar());
+  // a GPU reset or session switch (lock, RDP) can kill the hidden bar's
+  // renderer — a transparent window with a dead renderer shows nothing
+  barWin.webContents.on('render-process-gone', (_e, details) => {
+    console.error('bar renderer gone:', details.reason);
+    recreateBar();
+  });
   barWin.on('close', (e) => { if (!quitting) { e.preventDefault(); barWin.hide(); } });
 }
 
+function recreateBar() {
+  if (quitting) return;
+  const old = barWin;
+  const wasVisible = !!(old && !old.isDestroyed() && old.isVisible());
+  barWin = null;
+  if (old && !old.isDestroyed()) { try { old.destroy(); } catch {} }
+  createBar();
+  if (wasVisible) barWin.webContents.once('did-finish-load', () => showBar());
+}
+
 function positionBar(height) {
+  barHeight = height;
   if (!barWin || barWin.isDestroyed()) return;
   const wa = screen.getPrimaryDisplay().workArea;
   barWin.setBounds({
@@ -258,9 +277,24 @@ function pushSnipsToBar(event) {
 function showBar() {
   if (!auth.isSignedIn()) return; // nothing shows before login
   if (!barWin || barWin.isDestroyed() || library.length === 0) return;
-  if (!barWin.isVisible()) barWin.showInactive();
-  // (re)arm the renderer's auto-hide countdown
-  barWin.webContents.send('bar:visible');
+  if (barWin.webContents.isCrashed()) recreateBar();
+  const win = barWin;
+  const present = () => {
+    if (win !== barWin || win.isDestroyed()) return;
+    /* Never trust the stored bounds: display sleep and RDP round-trips
+       change the desktop geometry while the bar is hidden, and a window
+       stranded off-screen counts as occluded — its renderer stops painting,
+       so the bar:resize/positionBar loop that would move it back never runs.
+       Repositioning from the main process on every show breaks that cycle. */
+    positionBar(barHeight);
+    win.setAlwaysOnTop(true, 'status'); // re-assert after session switches
+    if (!win.isVisible()) win.showInactive();
+    try { win.webContents.invalidate(); } catch {} // repaint a stale surface
+    // (re)arm the renderer's auto-hide countdown
+    win.webContents.send('bar:visible');
+  };
+  if (win.webContents.isLoading()) win.webContents.once('did-finish-load', present);
+  else present();
 }
 
 /* ---------------- capture flow ---------------- */
@@ -2384,9 +2418,21 @@ if (!app.requestSingleInstanceLock()) {
     initDisplayMediaHandler();
     ensureOverlayPool(); // pre-load overlay windows so the hotkey is instant
     winEnum.warmUp(); // window snapping needs the enumeration helper warm
-    screen.on('display-added', ensureOverlayPool);
-    screen.on('display-removed', ensureOverlayPool);
-    screen.on('display-metrics-changed', ensureOverlayPool);
+    const displaysChanged = () => {
+      ensureOverlayPool();
+      positionBar(barHeight); // keep the bar glued to the primary work area
+    };
+    screen.on('display-added', displaysChanged);
+    screen.on('display-removed', displaysChanged);
+    screen.on('display-metrics-changed', displaysChanged);
+    // after a lock (RDP takes the console too) or sleep, rebuild the hidden
+    // bar outright: its renderer or composited surface may have died in a
+    // way isCrashed() can't see, and a rebuild is invisible while hidden
+    for (const ev of ['unlock-screen', 'resume']) {
+      powerMonitor.on(ev, () => {
+        if (barWin && !barWin.isDestroyed() && !barWin.isVisible()) recreateBar();
+      });
+    }
     applyAutoUpdateSetting();
     if (!regHotkey(settings.shortcut, 'default')) {
       settings.shortcut = DEFAULT_SETTINGS.shortcut;
