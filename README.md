@@ -200,6 +200,11 @@ The [Release workflow](.github/workflows/release.yml) builds the NSIS installer 
 Release. Installed apps pick the new version up automatically. CI also builds (without
 publishing) on every push and PR to `main`.
 
+No version string is hand-maintained anywhere, so a bump needs no follow-up edits: the app's own
+UI reads `app.getVersion()`, and the marketing site (`snipit-good.io`) fetches the latest release
+tag from GitHub at page load for its footer. A version bump is therefore complete once the tag is
+pushed — the site self-updates with no redeploy.
+
 ## License
 
 [MIT](LICENSE)
